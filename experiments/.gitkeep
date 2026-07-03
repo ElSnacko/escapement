@@ -1,0 +1,2 @@
+# Run-data snapshots (created by ../scripts/archive_runs.sh) are tracked here.
+# runs/ itself is gitignored; this is where durable experimental archives live.

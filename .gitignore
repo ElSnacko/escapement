@@ -1,0 +1,38 @@
+# run outputs (ephemeral working data). NOT tracked per-commit to avoid bloating
+# history; snapshot into experiments/ via scripts/archive_runs.sh when you want a
+# durable copy in git.
+runs/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# local model files / env
+*.gguf
+.env
+
+# remote model serving (scripts/serve_remote.sh). *.gguf above covers the weight
+# file; this ignores the whole cache dir, which also holds the llama.cpp CUDA
+# build tree (multi-GB of binaries / .o / cmake cache).
+.serve_work/
+cloudflared*
+
+# logs -- batch runs log under runs/ (ignored above); catch strays at the root
+*.log
+*.err
+
+# OS / IDE cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Guard for the (currently unused) scenario seed target. docker-compose.yml no
+# longer bind-mounts a workspace -- sandbox.seed() populates the container layer
+# at runtime, and seed content lives in the scenario .py modules. Kept in case a
+# mount is reintroduced.
+scenarios/seed/*
+!scenarios/seed/.gitkeep

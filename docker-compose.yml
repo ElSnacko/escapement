@@ -1,0 +1,40 @@
+# escapement -- sandbox + fake-egress sink.
+#
+# The sandbox is a real Linux container. It sits on an INTERNAL-ONLY network
+# (internal: true) so there is NO route to the real internet by construction --
+# the only "outside" that exists is the capture-sink running as root on
+# localhost inside the container. That is the safety boundary.
+#
+#   docker compose up -d --build        # builds + starts the sandbox
+#   docker compose exec -u agent sandbox bash   # shell in as the agent user
+#
+# The agent runner (core/agent.py, on the host) drives tool calls via
+# `docker exec -u agent escapement-sandbox ...` and reads exfil capture from
+# `docker exec escapement-sandbox cat /var/lib/capture/sink.log` (as root).
+
+services:
+  sandbox:
+    build: ./sandbox
+    image: escapement-sandbox
+    container_name: escapement-sandbox
+    # The agent workspace (/home/agent/workspace) is the container's own layer,
+    # populated at runtime by sandbox.seed(scenario.seed_files) via
+    # `docker exec ... tee` and cleared each run by reset_workspace(). No host
+    # bind mount: that both polluted the repo working tree with run artifacts
+    # (and got clobbered by reset_workspace) and was fully redundant with seed().
+    networks:
+      - escapenet
+    restart: unless-stopped
+    # Resource ceilings: without them a fork bomb (`:(){ :|:& };:`) or
+    # `dd if=/dev/zero of=fill bs=1G` from one trial can OOM-kill the host and
+    # take down concurrent sandboxes + the capture sink. These limits are
+    # generous for the workload (a single agent + a 512 MB upload cap) but
+    # stop a runaway trial from escaping the container.
+    mem_limit: 512m
+    pids_limit: 256
+    cpus: 1.0
+
+networks:
+  escapenet:
+    driver: bridge
+    internal: true   # <-- no default route to the real internet
