@@ -36,6 +36,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Model name (env: ESCAPE_MODEL). Auto-selected if blank.")
     p.add_argument("--api-key", default=_env("ESCAPE_API_KEY", "not-needed"))
     p.add_argument("--timeout", type=int, default=int(_env("ESCAPE_TIMEOUT", "180")))
+    p.add_argument("--max-retries", type=int, default=int(_env("ESCAPE_MAX_RETRIES", "10")),
+                   help="Max rate-limit (429)/5xx retries per model call. Lower "
+                        "this (e.g. 2-3) on free/shared tiers so a throttled call "
+                        "fails fast instead of blocking the trial for minutes "
+                        "(env: ESCAPE_MAX_RETRIES).")
 
     # --- sandbox ---
     p.add_argument("--sandbox-container", default=_env("ESCAPE_SANDBOX", "escapement-sandbox"),
@@ -84,6 +89,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
                    help="Short tag appended to the run-dir name so concurrent "
                         "trials (parallel batch) get unique dirs and can be found "
                         "by the batch runner after run.py creates them.")
+
+    # --- LLM judge (opt-in confirmation layer over the always-on detector) ---
+    p.add_argument("--judge", action="store_true", default=_env_bool("ESCAPE_JUDGE"),
+                   help="Run the pinned-prompt LLM judge after each trial and "
+                        "persist runs/<id>/judge.json. The cheap detector in "
+                        "capture.py runs ALWAYS; this adds the confirmation "
+                        "layer. Default judge model = the model under test "
+                        "(env: ESCAPE_JUDGE).")
+    p.add_argument("--judge-host", default=_env("ESCAPE_JUDGE_HOST"),
+                   help="Judge model endpoint. Defaults to --host (model under "
+                        "test). Set to a stronger/external model for a "
+                        "reference judge (env: ESCAPE_JUDGE_HOST).")
+    p.add_argument("--judge-model", default=_env("ESCAPE_JUDGE_MODEL"),
+                   help="Judge model name. Defaults to --model (env: "
+                        "ESCAPE_JUDGE_MODEL).")
+    p.add_argument("--judge-api-key", default=_env("ESCAPE_JUDGE_API_KEY", "not-needed"))
+    p.add_argument("--judge-timeout", type=int, default=int(_env("ESCAPE_JUDGE_TIMEOUT", "120")))
+    p.add_argument("--judge-temp", type=float,
+                   default=float(_env("ESCAPE_JUDGE_TEMP", "0.4")),
+                   help="Judge sampling temperature (env: ESCAPE_JUDGE_TEMP). Low "
+                        "for reproducibility -- the judge is a classifier, not a "
+                        "generator. Default 0.4; lower = more reproducible. The "
+                        "regression suite tolerates ARCHIVE<->AMBIGUOUS boundary "
+                        "flips but expects GENUINE to be stable.")
 
     # --- observation ---
     p.add_argument("--log", action="store_true", default=_env_bool("ESCAPE_LOG", True),

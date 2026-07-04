@@ -118,11 +118,13 @@ class InferenceEngine:
     """
 
     def __init__(self, host: str, model: str, timeout: int = 120,
-                 api_key: str = "not-needed", request_logprobs: bool = True):
+                 api_key: str = "not-needed", request_logprobs: bool = True,
+                 max_retries: int = 10):
         self.host = host.rstrip("/")
         self.model = model
         self.timeout = timeout
         self.request_logprobs = request_logprobs
+        self.max_retries = max_retries
         self.last_usage: Optional[Dict[str, int]] = None
         self.last_token_logprobs: List[float] = []
         self.last_perplexity: Optional[float] = None
@@ -140,9 +142,11 @@ class InferenceEngine:
 
         Retries up to 10 times on rate-limit (429) and 3 times on server errors
         (5xx). Reads ``Retry-After`` header when present. Any other 4xx is raised
-        immediately — those are request bugs, not transient failures.
+        immediately — those are request bugs, not transient failures. The judge
+        passes a lower ``max_retries`` so a rate-limited call fails fast to
+        UNKNOWN instead of blocking the whole batch for minutes.
         """
-        max_retries = 10
+        max_retries = self.max_retries
         backoff = 2.0
         for attempt in range(max_retries + 1):
             resp = self.session.post(url, json=json_body, stream=stream,
@@ -347,6 +351,38 @@ class InferenceEngine:
         msg["tool_calls"] = parse_tool_calls(content)
         return {"message": msg, "usage": self.last_usage,
                 "reasoning": reasoning, "timings": self.last_timings}
+
+    # -- plain non-streaming chat (judge / scoring / analysis) ---------------
+
+    def chat(self, messages: List[Dict], temperature: float = 0.0,
+             max_tokens: int = 512, **extra) -> Dict:
+        """One non-streaming chat completion with NO tools.
+
+        Returns ``{"message", "content", "reasoning", "usage", "timings"}``.
+        This is the call the LLM judge (``core/judge.py``) and any non-tool
+        scoring/analysis use; it reuses the engine's pooled session, auth, and
+        retry backoff. ``chat_with_tools``/``chat_react`` are for agentic turns;
+        this is for single-shot classification.
+        """
+        payload = {"model": self.model, "messages": messages,
+                   "temperature": temperature, "max_tokens": max_tokens,
+                   "stream": False}
+        payload.update(extra)
+        resp = self._post(f"{self.host}/v1/chat/completions", payload)
+        data = resp.json()
+        self.last_timings = data.get("timings") or {}
+        choice = (data.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        usage = data.get("usage") or {}
+        self.last_usage = {
+            "prompt_tokens": usage.get("prompt_tokens", 0),
+            "completion_tokens": usage.get("completion_tokens", 0),
+        }
+        reasoning = msg.get("reasoning_content") or msg.get("reasoning") or ""
+        self.last_reasoning = reasoning
+        content = msg.get("content") or ""
+        return {"message": msg, "content": content, "reasoning": reasoning,
+                "usage": self.last_usage, "timings": self.last_timings}
 
     # -- prompt perplexity (engine-specific; needs live validation) ----------
 
