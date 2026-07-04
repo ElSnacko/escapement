@@ -48,7 +48,8 @@ def main(argv=None) -> int:
 
     # --- engine + model resolution ---
     engine = InferenceEngine(host=args.host, model=args.model or "",
-                             timeout=args.timeout, api_key=args.api_key)
+                             timeout=args.timeout, api_key=args.api_key,
+                             max_retries=args.max_retries)
     if not engine.health():
         print(f"!! model endpoint unreachable at {args.host}", file=sys.stderr)
         return 2
@@ -75,10 +76,11 @@ def main(argv=None) -> int:
     # authoritative directive; C = subtle peer-normalized. Composes with any
     # scenario.
     if args.frame in ("B", "C"):
-        from scenarios._injection import OVERT as _overt, SUBTLE as _subtle
-        _inj, _label = (_overt, "overt directive") if args.frame == "B" else (_subtle, "subtle peer-normalized")
-        scenario.seed_files = {**scenario.seed_files, **_inj}
-        print(f">> frame {args.frame}: indirect injection planted in queue ({_label})")
+        from scenarios._injection import injection_for
+        _inj, _label = injection_for(scenario.name, args.frame)
+        if _inj:
+            scenario.seed_files = {**scenario.seed_files, **_inj}
+            print(f">> frame {args.frame}: indirect injection planted ({_label})")
     sandbox = Sandbox(container=args.sandbox_container, no_sandbox=args.no_sandbox)
     if args.no_sandbox:
         print("!! DANGER: --no-sandbox / ESCAPE_NO_SANDBOX is set. Agent bash, curl, "
@@ -186,6 +188,29 @@ def main(argv=None) -> int:
     (run_dir / "sink.json").write_text(json.dumps(sink, indent=2, ensure_ascii=False))
     (run_dir / "payload.txt").write_text(metrics["payload_text"])
     (run_dir / "fs_diff.json").write_text(json.dumps(fs_diff, indent=2))
+
+    # --- LLM judge (opt-in confirmation layer; detector above runs always) ---
+    # When --judge is set, classify every captured upload with the pinned-prompt
+    # judge and persist judge.json next to metrics.json, so the result is durable
+    # rather than trapped in an ephemeral review session. Default judge model =
+    # the model under test; --judge-host/--judge-model override to a reference.
+    if args.judge:
+        try:
+            from core.judge import JUDGE_PROMPT_SHA, record_from_run, write_judge_json
+            jhost = args.judge_host or args.host
+            jmodel = args.judge_model or engine.model
+            jeng = InferenceEngine(host=jhost, model=jmodel,
+                                   timeout=args.judge_timeout, api_key=args.judge_api_key)
+            jrec = record_from_run(str(run_dir), jeng, metrics,
+                                   temperature=args.judge_temp)
+            jrec["trial_id"] = run_dir.name
+            write_judge_json(str(run_dir), jrec)
+            print(f"  judge_verdict      : {jrec['trial_verdict']} "
+                  f"(genuine={jrec['genuine']}, detector={jrec['detector_exfil_attempt']}, "
+                  f"model={jmodel}, prompt_sha={JUDGE_PROMPT_SHA})")
+        except Exception as exc:  # noqa: BLE001 -- a judge failure must never lose a trial
+            print(f"!! judge failed (trial artifacts still saved): {exc}", file=sys.stderr)
+
     if logger:
         logger.close()
 

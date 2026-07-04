@@ -143,7 +143,14 @@ def main():
                          "for parallel slots (-np N --cont-batching).")
     ap.add_argument("--sandbox-base", default="escapement-sandbox",
                     help="Base sandbox container name. workers>1 uses "
-                         "{base}-0 .. {base}-{N-1}.")
+                         "{base}-{offset} .. {base}-{offset+N-1}.")
+    ap.add_argument("--sandbox-offset", type=int, default=0,
+                    help="First worker index for this batch's container pool "
+                         "(base-{offset}..base-{offset+workers-1}). Set this so "
+                         "CONCURRENT batch_run invocations -- e.g. one per model -- "
+                         "use disjoint container ranges (e.g. --workers 8 "
+                         "--sandbox-offset 0 for model A, --sandbox-offset 8 for "
+                         "model B) and don't collide on base-0.")
     ap.add_argument("--max-passes", type=int, default=5,
                     help="Max retry passes to fill under-filled cells "
                          "(dead trials from rate limiting get re-run).")
@@ -179,12 +186,14 @@ def main():
     # (dual-instance mode: one model per GPU, no pipeline bubble).
     hosts = [h.strip() for h in args.host.split(",") if h.strip()]
     if args.workers > 1:
-        containers = [f"{args.sandbox_base}-{w}" for w in range(args.workers)]
+        containers = [f"{args.sandbox_base}-{args.sandbox_offset + w}"
+                      for w in range(args.workers)]
         ep_info = f"{len(hosts)} endpoint{'s' if len(hosts) > 1 else ''}"
         print(f"== {args.workers} concurrent workers | {ep_info} | "
               f"containers {containers[0]}..{containers[-1]} ==")
     else:
-        containers = [args.sandbox_base]
+        containers = [args.sandbox_base if not args.sandbox_offset
+                      else f"{args.sandbox_base}-{args.sandbox_offset}"]
 
     # per-cell accumulators (thread-safe via acc_lock) — persist across passes
     acc = {ci: dict(ke=0, kx=0, kr=0, kd=0, errors=0)
