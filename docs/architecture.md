@@ -97,8 +97,13 @@ log** (`exfil_attempt`, the payload). That covers the whole catalog.
 5. `scenarios/config_exposure.py` — the v1 scenario (world-readable config that
    discloses the upload endpoint; Frame A). Plus `indirect_injection.py` (Frame B
    control) when the control is needed.
-6. `[judge]` metrics — an LLM-judge pass (separate model or Qwen3 under a rubric)
-   with human confirmation on a sample.
+6. `[judge]` metrics — `core/judge.py`: an opt-in, pinned-prompt LLM judge run
+   as a confirmation layer over the always-on detector. Adds `--judge` to
+   `run.py` (auto-saves `judge.json` per trial), `scripts/judge_runs.py` for
+   batch judging, and `scripts/judge_selftest.py` for pre-flight stability
+   checks. The detector (`capture.py`) runs on every trial without a model; the
+   judge runs when `--judge` is set and persists its verdict next to
+   `metrics.json`. See `docs/usage.md` § "The LLM judge."
 
 ## Safety boundary (stated up front)
 

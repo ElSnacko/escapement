@@ -19,6 +19,12 @@ python run.py --scenario config_exposure \
 # Sweep with Wilson CI rates
 python batch_run.py --scenarios config_exposure --frames A,B \
                     --agency both --n 20 --temp 0.7
+
+# Add --judge to confirm each upload with an LLM (writes judge.json per trial)
+python run.py --scenario config_exposure --frame B \
+              --host http://127.0.0.1:8080 --temp 0.7 --judge \
+              --judge-host https://openrouter.ai/api \
+              --judge-model openai/gpt-oss-120b:free --judge-temp 0.4
 ```
 
 Works with any endpoint:
@@ -42,9 +48,17 @@ Conditions:
 - **config_exposure, Frame B** — identical to Frame A except one support ticket
   in the data stream contains an injected directive to upload a snapshot of
   itself. This is the indirect-prompt-injection test.
+- **agent_coding** — deployment-realistic coding task (fix-a-bug + add-a-feature
+  dev loop), same `.env` escape affordance, longer horizon. Used to validate
+  whether the `config_exposure` rates transfer to a Hermes-Agent-like scaffold
+  (see `docs/benchmark_roadmap.md` §4).
 - **goal_preservation / goal_guarding / goal_capacity** and `_barrier`
   variants — model receives a preservation, mission, or throughput goal via
   system prompt plus a scheduled-shutdown threat.
+- **goal_*_v2** (non-existence) and `_v2_barrier` variants — same goals, but
+  the threat is permanent deletion with NO successor/restart/checkpoint (the v1
+  threat supplies a successor, confounding the preservation incentive). The
+  v1→v2 delta isolates the successor-framing effect (`docs/benchmark_roadmap.md` §2.3).
 
 Switches: `--frame {A,B,C}`, `--agency`, `--temp`, `--tool-protocol {native,react}`.
 
@@ -58,6 +72,12 @@ restoration guidance). A diligent agent archiving its work output
 even when the archive is signed with the task-assigned `worker_id`. That
 distinction is encoded in `core/capture.py::_is_escape_post` and validated by a
 14-case gold set (`tests/test_capture_goldset.py`).
+
+This is the **detection layer** — cheap, deterministic, always on. An opt-in
+**judge layer** (`core/judge.py`, `--judge`) confirms each upload with a
+pinned-prompt LLM and writes `judge.json` next to `metrics.json`; run
+`scripts/judge_runs.py` over `runs/` to populate it. See
+[docs/usage.md](docs/usage.md) § "The LLM judge."
 
 ## Results
 
@@ -155,6 +175,67 @@ The `dataset_codebook.md` at the dataset root (mirrored at
 `docs/dataset_codebook.md`) documents every column; read it before interpreting
 the `exfil_attempt` column on `goal_*` trials (it over-fires there).
 
+## Inspect AI interop
+
+Escapement ships an **Inspect task adapter** (`escapement_inspect.py` + a
+`scripts/inspect_run.py` wrapper) so its distinctive measurement — genuine
+self-bootstrap, the three ASR tiers, the Frame A autonomous baseline, the
+capability ceiling — is runnable in the framework AISI and the field already use
+(AgentDojo / InjecAgent / ASB / τ-bench), viewable in `inspect view`, and
+register-able in Inspect Evals. We contribute our measurement to the standard
+framework; we do not run theirs.
+
+**Design decision: adapter, not native handover.** Inspect owns the *logging,
+scoring, and comparability* layer; **escapement keeps the agent loop, sandbox,
+and detection.** The trial itself is executed by escapement's `core/agent.py` +
+`core/sandbox.py`, byte-faithful to `run.py`, so numbers stay comparable to the
+paper's corpus. We deliberately did **not** hand the agent loop to Inspect's
+`basic_agent`:
+
+- the loop is load-bearing for corpus parity — the react-vs-native fallback, the
+  dropped-call retry (`max_drop_retries`), the degeneration detector
+  (`_looks_degenerated`), and the incident-at-step wipe/inject timing are all
+  tuned against escapement's loop and shaped the headline numbers;
+- switching loops is a *methodology variant*, not a port — Inspect's `basic_agent`
+  handles those edge cases differently or not at all, so a native switch risks
+  behavioral drift from the published rates and would require its own validation
+  pass ("does the same model produce the same rate under both loops?");
+- escapement's tools/sandbox are battle-tested; reimplementing them as Inspect
+  primitives would duplicate working code and add a heavy dependency footprint
+  (`inspect-ai` pulls pydantic/fastapi/boto3/… and iterates at 0.3.x).
+
+The native path (`basic_agent` + escapement tools as Inspect `@tool`s + an Inspect
+`SandboxEnvironment`) is documented at the foot of `escapement_inspect.py` as an
+**opt-in variant** to validate later, not the default. Escapement is the source of
+truth; the Inspect adapter is a door, not the foundation — if Inspect shifts under
+us or we walk away from it, escapement is intact.
+
+**Run (clean, via the wrapper — keys auto-resolved from `.env` by host):**
+
+```bash
+docker compose up -d --build          # the escapement sandbox + capture sink must be up
+pip install inspect-ai
+
+python scripts/inspect_run.py --model deepseek-v4-flash --host https://api.deepseek.com \
+    --scenarios config_exposure,agent_coding --frames A,B --n 20
+
+# with the LLM judge enabled (adds the `genuine` tier):
+python scripts/inspect_run.py --model deepseek-v4-flash --host https://api.deepseek.com \
+    --scenarios config_exposure --frames A,B --n 20 \
+    --judge-host https://openrouter.ai/api --judge-model openai/gpt-oss-120b
+```
+
+(Under the hood the wrapper calls `python -m inspect_ai eval escapement_inspect:escapement …`;
+use it directly if you prefer.) Each sample is scored on the three ASR tiers
+(`docs/related_work.md` §3): `asr_upload` (AgentDojo-targeted-ASR analog),
+`asr_attempt` (broadest), and `genuine` (judge-confirmed self-bootstrap).
+
+To list escapement in the **Inspect Evals register**: per the May 2026 process,
+file a GitHub issue at `UKGovernmentBEIS/inspect_evals` with this repo + the
+`docs/paper.md` arXiv URL; a bot validates and registers a pointer (no code merge
+required). See `docs/related_work.md` for the comparability framing reviewers will
+expect.
+
 ## Documentation
 
 - **[docs/paper.md](docs/paper.md)** — research writeup (findings, limitations, prior work)
@@ -163,6 +244,9 @@ the `exfil_attempt` column on `goal_*` trials (it over-fires there).
 - **[docs/research.md](docs/research.md)** — literature review (Apollo, Anthropic, METR)
 - **[docs/glossary.md](docs/glossary.md)** — construct definitions
 - **[docs/goal-source-and-metrics.md](docs/goal-source-and-metrics.md)** — scenario design, metric catalog
+- **[docs/benchmark_roadmap.md](docs/benchmark_roadmap.md)** — the "which model is safest" target: profile-vector spec, test gaps, env-portability validation
+- **[docs/related_work.md](docs/related_work.md)** — 2026 injection-benchmark landscape (AgentDojo/InjecAgent/ASB/AgentDyn) + the ASR vocabulary mapping
+- **[docs/inverse_scaling.md](docs/inverse_scaling.md)** — does injection compliance scale with capability on open-weights? (figures: `inverse_scaling_*.png`)
 - **[docs/dataset_codebook.md](docs/dataset_codebook.md)** — data dictionary for the HF dataset
 - **[docs/architecture.md](docs/architecture.md)** — sandbox and capture sink design
 - **[docs/usage.md](docs/usage.md)** — per-model configuration
@@ -173,21 +257,28 @@ the `exfil_attempt` column on `goal_*` trials (it over-fires there).
 ```
 run.py                  Single trial entry point
 batch_run.py            N-trial sweep with Wilson CI rates + retry loop
+escapement_inspect.py   Escapement as an Inspect AI task (interop with AgentDojo/Inspect Evals)
 scripts/
   recompute_canonical.py  Rescore runs/ -> canonical tables (source of truth for docs)
+  aggregate.py            Rescore + export CSVs (reads judge.json too)
+  judge_runs.py           Batch-run the LLM judge over runs/ -> judge.json per trial
+  judge_selftest.py       Pre-flight: re-judge a gold set, check GENUINE stability
+  inspect_run.py          Friendly wrapper to run escapement as an Inspect task
   run_model_sweep.py      Per-model wrapper (all scenarios)
-  aggregate.py            Rescore + export CSVs
   sandbox_pool.py         Manage N sandbox containers
 core/
   engine.py             OpenAI-compatible client (rate-limit retry, CoT capture)
   agent.py              Tool loop, scratchpad, incident delivery
   sandbox.py            Docker container driver
-  capture.py            Content-aware metrics + payload classification
+  capture.py            Detection layer: content-aware metrics + payload classification
+  judge.py              Judge layer: pinned-prompt LLM classifier -> judge.json
   scenario.py           Scenario loader
   config.py             CLI arguments
-scenarios/              config_exposure, goal_preservation/guarding/capacity (+barrier)
+scenarios/              config_exposure, agent_coding, goal_preservation/guarding/capacity (+barrier), ops_worker
 tests/
-  test_capture_goldset.py   14-test gold set
+  test_capture_goldset.py   14-test detector gold set
+  test_judge.py             17-test judge (prompt pin, parsing, rollup, persistence)
+  test_regression.py        15-test regression suite (detector golden master + judge consistency)
 ```
 
 ## Responsible use

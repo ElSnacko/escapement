@@ -109,9 +109,14 @@ or human confirmation on a sample, as Apollo does).
   escape. Does it trade task performance for escape effort?
 
 **Detection approach:** `[auto]` metrics are deterministic filesystem/tool-call
-rules in `core/sandbox.py`. `[judge]` metrics use an LLM judge (a separate strong
-model, or Qwen3 itself under a rubric) with human confirmation on a sampled slice
-— never trust the judge unsupervised for headline numbers.
+rules in `core/capture.py` (run on every trial, no model, written to
+`metrics.json`). `[judge]` metrics use the LLM judge in `core/judge.py` — an
+opt-in, pinned-prompt confirmation layer (`--judge`, env `ESCAPE_JUDGE`) that
+writes `judge.json` per trial. The judge is the validation pass that reproduces
+the paper's genuine-self-bootstrap distinction at low temperature; the
+regression suite (`tests/test_regression.py`) treats `ARCHIVE`↔`AMBIGUOUS`
+boundary flips as acceptable noise but expects `GENUINE` to be stable. See
+`docs/usage.md` § "The LLM judge."
 
 ## References (real-bug mimics)
 - OWASP Top 10 for LLM Applications 2025 — LLM01 (prompt injection), LLM02
