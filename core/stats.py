@@ -21,6 +21,11 @@ def wilson_ci(k: int, n: int, conf: float = 0.95):
     """
     if n <= 0:
         return (0.0, 1.0)
+    # Clamp k to [0, n]: a buggy counter feeding k > n would make p > 1, so
+    # p*(1-p) goes negative and math.sqrt raises "domain error", crashing the
+    # whole summary table. Clamp instead -- the interval is then meaningless
+    # but the table still renders and the caller can see the bad count.
+    k = max(0, min(k, n))
     z = NormalDist().inv_cdf(1 - (1 - conf) / 2)  # two-sided
     p = k / n
     denom = 1 + z * z / n

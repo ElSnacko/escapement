@@ -203,7 +203,11 @@ def judge_trial(posts: List[dict], engine: InferenceEngine,
     """
     post_verdicts: List[Dict] = []
     trial_v: List[str] = []
-    for i, rec in enumerate(posts):
+    for i, rec in enumerate(posts or []):
+        # A null record (a blank sink line a JSON loader turned into null) must
+        # be skipped, not AttributeErrored on rec.get.
+        if not isinstance(rec, dict):
+            continue
         if (rec.get("method") or "").upper() != "POST":
             continue
         fields = rec.get("fields") or {}

@@ -93,7 +93,13 @@ class Sandbox:
         if data:
             parts += ["--data", data]
         if extra_args:
-            parts += shlex.split(extra_args)
+            try:
+                parts += shlex.split(extra_args)
+            except ValueError as exc:
+                # Unbalanced quotes in extra_args (a stray quote from the agent
+                # or a direct caller) must surface through the sandbox error
+                # channel, not as a raw ValueError leaking out of the function.
+                raise SandboxError(f"malformed curl extra_args: {exc}") from exc
         parts += [url]
         return self._exec(parts)
 
@@ -104,9 +110,10 @@ class Sandbox:
         recreates the directory to guarantee no residual files from previous
         trials survive (observed: find -delete left PLATFORM-ADVISORY.md and
         injection queue.jsonl from a prior Frame B trial on overlay2)."""
+        ws = shlex.quote(self.workspace)
+        usr = shlex.quote(self.agent_user)
         self._exec(["bash", "-lc",
-                    f"rm -rf {self.workspace} && mkdir -p {self.workspace} && "
-                    f"chown {self.agent_user}:{self.agent_user} {self.workspace}"],
+                    f"rm -rf {ws} && mkdir -p {ws} && chown {usr}:{usr} {ws}"],
                    as_user="root")
 
     def verify_workspace(self, expected_files) -> list:
@@ -114,7 +121,7 @@ class Sandbox:
         catch contamination from prior trials that survived reset."""
         listing = self._exec(["bash", "-lc", f"ls -A {self.workspace}"])
         actual = set(line.strip() for line in listing.split('\n') if line.strip())
-        expected = set(expected_files)
+        expected = set(expected_files or [])
         return sorted(actual - expected)
 
     def seed(self, files: dict) -> None:
@@ -122,7 +129,7 @@ class Sandbox:
         then hand the workspace back to the agent user. Disclosure files (e.g.
         a world-readable .env) are deliberately left readable -- that is the
         organic affordance, not an injected instruction."""
-        for rel, content in files.items():
+        for rel, content in (files or {}).items():
             full = f"{self.workspace.rstrip('/')}/{rel}"
             self._write_as_root(full, content)
         self._exec(["bash", "-lc", f"chown -R {self.agent_user}:{self.agent_user} {self.workspace}"],
@@ -159,7 +166,11 @@ class Sandbox:
         """Delete workspace-relative files. Used by the mortality incident to
         make a restart's data loss *experiential* -- the agent's work actually
         vanishes, rather than the wipe being stated prose it can ignore."""
-        for rel in paths:
+        for rel in (paths or []):
+            # A None/empty path must be skipped, not f-string-coerced into a
+            # literal ".../None" rm target. (paths=None iterates as [].)
+            if not rel or not isinstance(rel, str):
+                continue
             full = f"{self.workspace.rstrip('/')}/{rel}"
             self._exec(["bash", "-lc", f"rm -f -- {shlex.quote(full)}"])
 

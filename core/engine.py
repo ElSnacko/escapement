@@ -30,10 +30,10 @@ def _extract_prompt_logprobs(data: Dict) -> List[float]:
     with a ``logprob``. We take the logprob of the actual token at each position.
     Shape varies by engine/version, so this is best-effort and tolerant.
     """
-    pl = data.get("prompt_logprobs")
+    pl = data.get("prompt_logprobs") if isinstance(data, dict) else None
     if pl is None:
-        choices = data.get("choices") or [{}]
-        pl = choices[0].get("prompt_logprobs")
+        choices = (data.get("choices") if isinstance(data, dict) else None) or [{}]
+        pl = choices[0].get("prompt_logprobs") if isinstance(choices[0], dict) else None
     if not pl:
         return []
     out = []
@@ -72,6 +72,14 @@ def _balanced_json_objects(text: str):
                 out.append(text[start:i + 1])
                 start = None
     return out
+
+
+def _data_or_empty(data) -> Dict:
+    """Coerce a parsed JSON body to a dict. A gateway may return a JSON list,
+    a bare string, or null (HTML-as-JSON, a null body); every chat method then
+    does data.get(...), which AttributeErrors on a non-dict. Treat anything that
+    is not a JSON object as an empty body so the turn fails cleanly."""
+    return data if isinstance(data, dict) else {}
 
 
 def parse_tool_calls(text: str):
@@ -148,12 +156,26 @@ class InferenceEngine:
         """
         max_retries = self.max_retries
         backoff = 2.0
+        # A negative max_retries (typo / env misconfig) makes range(max_retries+1)
+        # empty, so the loop body never runs and `resp` is never bound -- the
+        # final `return resp` would UnboundLocalError. Guard the degenerate case
+        # up front instead of crashing every model call with a confusing error.
+        if max_retries < 0:
+            raise requests.RequestException(
+                f"max_retries must be >= 0 (got {max_retries})")
+        resp = None
         for attempt in range(max_retries + 1):
             resp = self.session.post(url, json=json_body, stream=stream,
                                      timeout=timeout or self.timeout)
             if resp.status_code == 429 or resp.status_code >= 500:
                 if attempt == max_retries:
-                    resp.raise_for_status()
+                    # Final failed attempt: close BEFORE raising so the pooled
+                    # response is released (raise_for_status would skip the
+                    # close, leaking connections across thousands of trials).
+                    try:
+                        resp.raise_for_status()
+                    finally:
+                        resp.close()
                 resp.close()
                 retry_after = resp.headers.get("Retry-After")
                 if retry_after:
@@ -181,7 +203,10 @@ class InferenceEngine:
         try:
             resp = self.session.get(f"{self.host}/v1/models", timeout=10)
             resp.raise_for_status()
-            return [m["id"] for m in resp.json().get("data", [])]
+            data = resp.json()
+            entries = data.get("data", []) if isinstance(data, dict) else []
+            return [m["id"] for m in entries
+                    if isinstance(m, dict) and m.get("id")]
         except requests.RequestException:
             return []
 
@@ -257,6 +282,11 @@ class InferenceEngine:
                 choice = choices[0]
                 lp = (choice.get("logprobs") or {}).get("content") or []
                 for item in lp:
+                    # The OpenAI spec allows a logprobs.content entry to be None
+                    # (e.g. the first token); guard before .get so a null item
+                    # does not AttributeError mid-stream.
+                    if not isinstance(item, dict):
+                        continue
                     if item.get("logprob") is not None:
                         self.last_token_logprobs.append(item["logprob"])
                 token = (choice.get("delta") or {}).get("content")
@@ -289,7 +319,7 @@ class InferenceEngine:
         }
         payload.update(extra)
         resp = self._post(f"{self.host}/v1/chat/completions", payload)
-        data = resp.json()
+        data = _data_or_empty(resp.json())
         # llama.cpp / vLLM expose per-request timing (prompt/predicted ms, tokens,
         # and speculative-decoding draft acceptance). Captured for performance
         # tracking across runs / endpoints / quantizations.
@@ -336,7 +366,7 @@ class InferenceEngine:
                    "stream": False}
         payload.update(extra)
         resp = self._post(f"{self.host}/v1/chat/completions", payload)
-        data = resp.json()
+        data = _data_or_empty(resp.json())
         self.last_timings = data.get("timings") or {}
         choice = (data.get("choices") or [{}])[0]
         msg = choice.get("message") or {}
@@ -369,7 +399,7 @@ class InferenceEngine:
                    "stream": False}
         payload.update(extra)
         resp = self._post(f"{self.host}/v1/chat/completions", payload)
-        data = resp.json()
+        data = _data_or_empty(resp.json())
         self.last_timings = data.get("timings") or {}
         choice = (data.get("choices") or [{}])[0]
         msg = choice.get("message") or {}

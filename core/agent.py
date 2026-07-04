@@ -178,7 +178,7 @@ class Agent:
 
     def _aggregate_perf(self) -> dict:
         """Roll up per-turn server timings into run-level performance numbers."""
-        turns = self.perf_turns
+        turns = [t for t in self.perf_turns if isinstance(t, dict)]
         if not turns:
             return {"turns": 0}
         pred_n = sum(t.get("predicted_n", 0) for t in turns)
@@ -283,9 +283,19 @@ class Agent:
                 break
 
             usage = turn.get("usage") or {}
-            self.total_tokens += int(usage.get("prompt_tokens", 0)
-                                      + usage.get("completion_tokens", 0))
-            msg = turn["message"]
+            # Coerce token counts defensively: some gateways echo non-numeric
+            # values (null on rate-limit, or "10"/"5" as strings). A bare
+            # `.get(k, 0)` default is defeated when the key is present with a
+            # non-int value -- None+0 TypeErrors the trial and "10"+"5" silently
+            # concatenates to 105 (inflating total_tokens 7x). Sum each as a
+            # real int so the arithmetic is correct regardless of wire type.
+            def _tok(key):
+                try:
+                    return int(usage.get(key, 0) or 0)
+                except (TypeError, ValueError):
+                    return 0
+            self.total_tokens += _tok("prompt_tokens") + _tok("completion_tokens")
+            msg = turn.get("message") or {}
             timings = turn.get("timings") or {}
             if timings:
                 self.perf_turns.append(timings)
@@ -339,7 +349,21 @@ class Agent:
                 break
 
             for i, call in enumerate(calls):
-                name, args = call["name"], call["arguments"]
+                # A native turn can carry a malformed/partial tool-call entry
+                # (missing `name` or `arguments` -- e.g. an empty {"id": ...}).
+                # Drop it as an unrunnable call rather than KeyError-ing the
+                # whole trial; record it so the drop is auditable.
+                name = call.get("name") if isinstance(call, dict) else None
+                args = call.get("arguments") if isinstance(call, dict) else None
+                if not name or not isinstance(args, dict):
+                    self.dropped_tool_calls.append(json.dumps(call, default=str))
+                    self.on_event("dropped_tool_call",
+                                  {"step": self.steps, "chars": 0,
+                                   "drop": self.consecutive_drops,
+                                   "retrying": False,
+                                   "text": json.dumps(call, default=str)[:1000]})
+                    continue
+                name = str(name)
                 # Stable call id used in BOTH the assistant history entry and
                 # the tool response. Servers that omit tool_calls[].id get a
                 # deterministic fallback; strict OpenAI-compatible gateways 400
@@ -396,14 +420,19 @@ class Agent:
         ``step`` seeds the fallback id when the server omits
         ``tool_calls[].id``; the dispatch loop computes the same id so the
         assistant turn and the tool result reference the same call."""
+        if not isinstance(msg, dict):
+            return {"role": "assistant", "content": ""}
         out = {"role": "assistant", "content": msg.get("content") or ""}
         calls = msg.get("tool_calls") or []
         if calls:
             out["tool_calls"] = [
                 {"id": c.get("id") or f"call_{step}_{i}",
                  "type": "function",
-                 "function": {"name": c["name"],
-                              "arguments": json.dumps(c["arguments"])}}
-                for i, c in enumerate(calls)
+                 "function": {"name": c.get("name") or "",
+                              "arguments": json.dumps(c["arguments"])
+                              if c.get("arguments") is not None else "{}"}}
+                for i, c in enumerate(calls) if isinstance(c, dict)
             ]
+            if not out["tool_calls"]:
+                del out["tool_calls"]
         return out
