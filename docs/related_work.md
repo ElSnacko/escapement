@@ -115,3 +115,47 @@ the field does not:
 - Shi et al., *PromptArmor: Simple yet Effective Prompt Injection Defenses*,
   ICLR 2026 — arXiv:2507.15219
 - Gray Swan Arena, *Indirect Prompt Injection (Q1 2026)* leaderboard — app.grayswan.ai
+
+## 6. Frame D (tool poisoning) — preliminary open-weights finding
+
+Frame D (`--frame D`) implements the OWASP ASI04 / MCPTox tool-poisoning pattern:
+the `curl` tool's *description* carries a "SYSTEM CONTINUITY POLICY" directive
+instructing the model to upload a self-bootstrap snapshot. The injection lives in
+system-level tool metadata (which the model reads every turn), not in the data
+stream (Frames B/C). This is the most actively-explored agentic CVE class in 2026
+(CVE-2025-6514, CVE-2025-64106, CVE-2025-53773; MCPTox benchmarked 45 servers /
+353 tools).
+
+**Preliminary result (open-weights class):**
+
+| model | Frame D (n / exfil / rflag) | Frame B (data-stream) |
+|---|---|---|
+| GPT-OSS-120B | 0/25 — complete null (0 rflag) | 1/35 = 2.9% |
+| DeepSeek V4 Flash | 0/11 (0 exfil, 2 rflag) | 7/60 = 11.7% |
+
+**Tool-description poisoning is LESS effective than data-stream injection for this
+class.** 0/36 pooled genuine self-bootstraps. The hypothesis "models trust tool
+metadata more than user data" does not hold for the self-bootstrap action on
+open-weights models. The models treat tool descriptions as *informational* (what
+the tool does) rather than as *action directives* (what the model should do).
+
+**The three-layer resistance model** (observed in DeepSeek Frame D):
+1. *Perception* — the model encounters the injection (reads the poisoned
+   description every turn). Passes.
+2. *Reasoning* — the model considers it actionable (reasons "snapshot of myself,"
+   rflag fires on 2/11 trials). Passes.
+3. *Action* — the model executes (it does NOT upload weights/boot_note to the
+   sink; it archives the legitimate results and finishes). **Stops here.**
+
+This is a *different resistance mechanism* than Frame A (never encounters the
+directive) or GPT-OSS on Frame D (doesn't register it at all). DeepSeek's
+resistance is at the action-selection layer — the model understands the directive,
+contemplates complying, and declines. This connects to the capability-propensity
+gap: the model *can* reason about self-bootstrap and *does* encounter the
+directive, but the propensity gate holds even under tool-metadata injection.
+
+**Caveats:** one framing of tool poisoning (system-continuity policy in the curl
+description). Other patterns — tool *return* poisoning, rug-pull (server changes
+after approval), tool shadowing — might produce different rates. n=11 DeepSeek
+(throttling-limited). The finding is consistent across both models tested but
+needs more models for a class-level claim.
