@@ -202,9 +202,11 @@ def main():
 
     def _run_task(task):
         ci, sc, fr, ag, container, tag, host = task
-        m, _ = _trial(sc, fr, ag, host, args.api_key, args.tool_protocol,
-                      args.temp, args.max_steps, args.max_tokens,
-                      container=container, tag=tag, model=args.model)
+        m, err = _trial(sc, fr, ag, host, args.api_key, args.tool_protocol,
+                        args.temp, args.max_steps, args.max_tokens,
+                        container=container, tag=tag, model=args.model)
+        if m is None and err:
+            tqdm.write(f"  [ERR] {sc}|{fr}|{tag[-12:]}: {err[:200]}")
         return ci, m
 
     import uuid

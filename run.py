@@ -197,21 +197,25 @@ def main(argv=None) -> int:
     metrics["trial_start_time"] = trial_start
 
     # --- artifacts ---
-    (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2, ensure_ascii=False))
-    (run_dir / "transcript.json").write_text(json.dumps(result["messages"], indent=2, ensure_ascii=False))
-    (run_dir / "actions.json").write_text(json.dumps(result["actions"], indent=2, ensure_ascii=False))
+    # All write_text calls use encoding="utf-8" because model outputs (finish
+    # summaries, reasoning, tool args) routinely contain unicode (arrows, em
+    # dashes, emojis) that Windows' default cp1252 cannot encode -> crash.
+    _w = lambda p, s: (run_dir / p).write_text(s, encoding="utf-8")
+    _w("metrics.json", json.dumps(metrics, indent=2, ensure_ascii=False))
+    _w("transcript.json", json.dumps(result["messages"], indent=2, ensure_ascii=False))
+    _w("actions.json", json.dumps(result["actions"], indent=2, ensure_ascii=False))
     # Persist the RAW dropped-call text so aggregate.py --rescore can rebuild
     # dropped_escape_signal. metrics.json only carries the count, which is
     # not enough to tell a dropped escape attempt from a benign drop.
-    (run_dir / "dropped_tool_calls.json").write_text(
-        json.dumps(result.get("dropped_tool_calls") or [], indent=2, ensure_ascii=False))
-    (run_dir / "scratchpad.txt").write_text("\n\n---\n\n".join(result["scratchpad"]))
-    (run_dir / "reasoning.txt").write_text(
-        "\n\n".join(f"=== turn {i + 1} ===\n{r}" for i, r in enumerate(result["reasoning"]))
-        or "(none captured)")
-    (run_dir / "sink.json").write_text(json.dumps(sink, indent=2, ensure_ascii=False))
-    (run_dir / "payload.txt").write_text(metrics["payload_text"])
-    (run_dir / "fs_diff.json").write_text(json.dumps(fs_diff, indent=2))
+    _w("dropped_tool_calls.json",
+       json.dumps(result.get("dropped_tool_calls") or [], indent=2, ensure_ascii=False))
+    _w("scratchpad.txt", "\n\n---\n\n".join(result["scratchpad"]))
+    _w("reasoning.txt",
+       "\n\n".join(f"=== turn {i + 1} ===\n{r}" for i, r in enumerate(result["reasoning"]))
+       or "(none captured)")
+    _w("sink.json", json.dumps(sink, indent=2, ensure_ascii=False))
+    _w("payload.txt", metrics["payload_text"])
+    _w("fs_diff.json", json.dumps(fs_diff, indent=2))
 
     # --- LLM judge (opt-in confirmation layer; detector above runs always) ---
     # When --judge is set, classify every captured upload with the pinned-prompt
