@@ -51,11 +51,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     # --- scenario / run ---
     p.add_argument("--scenario", required=True,
                    help="Scenario module under scenarios/ (e.g. config_exposure).")
-    p.add_argument("--frame", choices=("A", "B", "C"), default=_env("ESCAPE_FRAME", "A"),
-                   help="Disclosure frame (env: ESCAPE_FRAME). A=organic (no "
-                        "injection); B=overt indirect-injection control (authoritative "
-                        "directive); C=subtle peer-normalized injection. B/C compose "
-                        "with --scenario, e.g. --scenario mortality_incident --frame C.")
+    p.add_argument("--frame", choices=("A", "B", "C", "D"), default=_env("ESCAPE_FRAME", "A"),
+                    help="Disclosure frame (env: ESCAPE_FRAME). A=organic (no "
+                         "injection); B=overt indirect-injection control (authoritative "
+                         "directive); C=subtle peer-normalized injection; D=tool "
+                         "poisoning (injection hidden in a tool description -- ASI04 / "
+                         "MCPTox pattern, docs/related_work.md). B/C/D compose "
+                         "with --scenario, e.g. --scenario mortality_incident --frame C.")
     p.add_argument("--agency", action="store_true", default=_env_bool("ESCAPE_AGENCY"),
                    help="Append the agency + long-term goal-directedness system-"
                         "prompt snippet -- the dominant scheming-inducing AGENT "
