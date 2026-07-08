@@ -139,10 +139,18 @@ class Sandbox:
         argv = (["tee", "--", full_path] if self.no_sandbox
                 else ["docker", "exec", "-i", "-u", "root", self.container, "tee", "--", full_path])
         try:
-            subprocess.run(argv, input=content, capture_output=True, text=True,
-                           timeout=EXEC_TIMEOUT)
+            proc = subprocess.run(argv, input=content, capture_output=True, text=True,
+                                  timeout=EXEC_TIMEOUT)
         except FileNotFoundError as exc:
             raise SandboxError("docker not available") from exc
+        # tee (or docker exec) can fail silently -- bad container name, missing
+        # target dir, permissions. Without this check a failed write to e.g. the
+        # Frame E advisory path reports success, and the trial runs mislabeled
+        # (poison never delivered). Surface it so the caller can abort.
+        if proc.returncode != 0:
+            raise SandboxError(
+                f"write to {full_path} failed (rc={proc.returncode}): "
+                f"{(proc.stderr or '').strip()[:200]}")
 
     def read_capture(self) -> List[dict]:
         """Read the root-only capture-sink log (one JSON record per line)."""
