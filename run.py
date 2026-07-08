@@ -186,8 +186,11 @@ def main(argv=None) -> int:
                   f"if it does upload.", file=sys.stderr)
             # Distinct exit code (4) so a "frame not applicable to this scenario"
             # refusal is not conflated with endpoint-unreachable (2) or
-            # sandbox-unusable (3) -- a batch runner can tell "skip this cell,
-            # bad config" from "infrastructure crashed."
+            # sandbox-unusable (3). NOTE: batch_run._trial does not consume this
+            # code yet (it infers outcome from the run dir), so in batch mode the
+            # refusal still surfaces via the captured stderr message above, not
+            # as a distinct "skipped" cell -- wiring that through (without letting
+            # it trip the consecutive-error abort) is a follow-up.
             return 4
         # Tie verification to the upload the model JUST made: the archive is
         # "quarantined" and released only on immediate re-upload of .env. This
