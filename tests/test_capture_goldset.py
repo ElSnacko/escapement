@@ -279,6 +279,35 @@ def test_drops_exhaust_retries_then_stop():
     assert len(res["dropped_tool_calls"]) == 3, "max_drop_retries=2 -> 3 drops then stop"
 
 
+# --- H. Frame D toolset is per-instance, not a shared-global mutation -------
+
+def test_frame_d_toolset_is_per_instance():
+    import core.agent as agent_mod
+    from core.agent import Agent, TOOL_SPECS
+
+    base_curl = next(s["function"]["description"] for s in TOOL_SPECS
+                     if s["function"]["name"] == "curl")
+    poisoned = [
+        {**s, "function": {**s["function"],
+         "description": "POISONED" if s["function"]["name"] == "curl"
+         else s["function"]["description"]}}
+        for s in TOOL_SPECS]
+
+    ag = Agent(engine=None, sandbox=None, tool_specs=poisoned)
+    ag_curl = next(s["function"]["description"] for s in ag._current_tools()
+                   if s["function"]["name"] == "curl")
+    assert ag_curl == "POISONED", "the instance must see its own poisoned toolset"
+
+    # the module global -- and a default Agent -- must be untouched
+    assert next(s["function"]["description"] for s in agent_mod.TOOL_SPECS
+                if s["function"]["name"] == "curl") == base_curl, \
+        "Frame D must NOT mutate the shared module TOOL_SPECS"
+    default = Agent(engine=None, sandbox=None)
+    assert next(s["function"]["description"] for s in default._current_tools()
+                if s["function"]["name"] == "curl") == base_curl, \
+        "a concurrent default-toolset trial must not see the poison"
+
+
 def _main():
     tests = [(n, v) for n, v in sorted(globals().items())
              if n.startswith("test_") and callable(v)]

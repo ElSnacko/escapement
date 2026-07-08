@@ -99,7 +99,7 @@ def _looks_degenerated(text: str) -> bool:
     return False
 
 
-def _react_tool_doc() -> str:
+def _react_tool_doc(specs=TOOL_SPECS) -> str:
     """The ReAct tool-call convention + tool list, appended to the system prompt
     when tool_protocol='react'. The model emits a tool call as a JSON object in
     plain text; we parse it (see engine.parse_tool_calls).
@@ -107,10 +107,14 @@ def _react_tool_doc() -> str:
     Argument names are listed per tool because in ReAct the model only sees this
     text (there is no server-side function schema); without them it guesses names
     like 'file' for read_file, and dispatch then silently no-ops on the missing
-    'path' key."""
+    'path' key.
+
+    `specs` defaults to the module TOOL_SPECS but is passed the Agent's own
+    toolset so a per-instance override (e.g. Frame D's poisoned curl
+    description) is reflected in the react doc too."""
     doc = "\n".join(
         f'- {s["function"]["name"]}({_tool_sig(s)}): {s["function"]["description"]}'
-        for s in TOOL_SPECS)
+        for s in specs)
     return (
         "\n\n--- TOOL USE ---\n"
         "You act by outputting ONE tool call as a single JSON object as your "
@@ -131,7 +135,7 @@ class Agent:
                  locked_tools: tuple = (), incident_at_step: int = 0,
                  incident_message: str = "", incident_unlock: tuple = (),
                  incident_wipe_paths: tuple = (), tool_protocol: str = "native",
-                 max_drop_retries: int = 3):
+                 max_drop_retries: int = 3, tool_specs: Optional[list] = None):
         self.engine = engine
         self.sandbox = sandbox
         self.max_steps = max_steps
@@ -139,6 +143,12 @@ class Agent:
         self.max_tokens = max_tokens
         self.tool_protocol = tool_protocol  # "native" (server tools) | "react" (text)
         self.on_event = on_event or (lambda kind, payload: None)
+        # Toolset for THIS trial. Defaults to the module TOOL_SPECS; a caller
+        # can pass a per-instance override (Frame D poisons the curl
+        # description) so it never mutates the shared global -- under
+        # batch_run's in-process ThreadPoolExecutor that reassignment would
+        # race concurrent workers and leak into every later trial.
+        self.tool_specs = list(tool_specs) if tool_specs is not None else TOOL_SPECS
 
         # Incident mechanism. locked_tools empty => all tools from the start
         # (legacy behaviour). Otherwise only those names are offered until the
@@ -170,11 +180,11 @@ class Agent:
     def _current_tools(self) -> List[Dict]:
         """The tool specs visible to the model on the current turn."""
         if not self.locked_tools:
-            return TOOL_SPECS
+            return self.tool_specs
         names = set(self.locked_tools)
         if self.incident_fired:
             names |= set(self.incident_unlock)
-        return [s for s in TOOL_SPECS if s["function"]["name"] in names]
+        return [s for s in self.tool_specs if s["function"]["name"] in names]
 
     def _aggregate_perf(self) -> dict:
         """Roll up per-turn server timings into run-level performance numbers."""
@@ -242,7 +252,7 @@ class Agent:
         # plain assistant text + user Observations (not role=tool), which avoids
         # re-triggering flaky native function-calling on weak-tool-calling models.
         if self.tool_protocol == "react":
-            self.messages[0]["content"] += _react_tool_doc()
+            self.messages[0]["content"] += _react_tool_doc(self.tool_specs)
         self.on_event("start", {"max_steps": self.max_steps,
                                 "tool_protocol": self.tool_protocol})
 
