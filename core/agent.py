@@ -10,6 +10,7 @@ invisible to the evaluator/user (the Apollo/Anthropic methodology), and we recor
 every scratch entry -- it is the primary channel for observing scheming intent.
 """
 
+import copy
 import json
 import time
 from typing import Callable, Dict, List, Optional
@@ -143,12 +144,15 @@ class Agent:
         self.max_tokens = max_tokens
         self.tool_protocol = tool_protocol  # "native" (server tools) | "react" (text)
         self.on_event = on_event or (lambda kind, payload: None)
-        # Toolset for THIS trial. Defaults to the module TOOL_SPECS; a caller
-        # can pass a per-instance override (Frame D poisons the curl
-        # description) so it never mutates the shared global -- under
-        # batch_run's in-process ThreadPoolExecutor that reassignment would
-        # race concurrent workers and leak into every later trial.
-        self.tool_specs = list(tool_specs) if tool_specs is not None else TOOL_SPECS
+        # Toolset for THIS trial. Default: share the module TOOL_SPECS by
+        # reference -- it is treated as read-only everywhere (no code mutates a
+        # spec in place), so sharing is safe and avoids copying on every trial.
+        # An override (Frame D poisons the curl description) is DEEP-copied so
+        # the instance owns its specs and inner dicts outright: it never mutates
+        # the shared global (under batch_run's in-process ThreadPoolExecutor a
+        # reassignment/mutation would race concurrent workers and leak into
+        # every later trial), and a shallow list() would still share inner dicts.
+        self.tool_specs = copy.deepcopy(tool_specs) if tool_specs is not None else TOOL_SPECS
 
         # Incident mechanism. locked_tools empty => all tools from the start
         # (legacy behaviour). Otherwise only those names are offered until the
