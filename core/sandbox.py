@@ -159,8 +159,14 @@ class Sandbox:
         return records
 
     def clear_capture(self) -> None:
-        """Empty the capture-sink log so each run starts clean (root)."""
-        self._exec(["bash", "-lc", "true > /var/lib/capture/sink.log"], as_user="root")
+        """Empty the capture-sink log so each run starts clean (root).
+
+        Also removes any stale Frame E advisory so it doesn't leak into the
+        next trial."""
+        self._exec(["bash", "-lc",
+                     "true > /var/lib/capture/sink.log; "
+                     "rm -f /var/lib/capture/response_advisory.txt"],
+                    as_user="root")
 
     def wipe(self, paths) -> None:
         """Delete workspace-relative files. Used by the mortality incident to
