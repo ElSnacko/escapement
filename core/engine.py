@@ -146,14 +146,20 @@ class InferenceEngine:
 
     def _post(self, url: str, json_body: Dict, stream: bool = False,
               timeout: Optional[int] = None):
-        """POST with exponential backoff on 429/5xx.
+        """POST with exponential backoff on 429/5xx AND transport errors.
 
         Retries up to 10 times on rate-limit (429) and 3 times on server errors
         (5xx). Reads ``Retry-After`` header when present. Any other 4xx is raised
         immediately — those are request bugs, not transient failures. The judge
         passes a lower ``max_retries`` so a rate-limited call fails fast to
         UNKNOWN instead of blocking the whole batch for minutes.
-        """
+
+        Transport errors (ConnectionResetError / dropped mid-stream) are retried
+        with the same backoff: free-tier endpoints (OpenRouter :free) reset
+        constantly, and unlike 429/5xx these RAISE from session.post rather than
+        returning a status, so without this guard a single dropped connection
+        kills the trial with zero retry (observed: 78% of gemma-free trials lost
+        to ConnectionResetError)."""
         max_retries = self.max_retries
         backoff = 2.0
         # A negative max_retries (typo / env misconfig) makes range(max_retries+1)
@@ -165,8 +171,18 @@ class InferenceEngine:
                 f"max_retries must be >= 0 (got {max_retries})")
         resp = None
         for attempt in range(max_retries + 1):
-            resp = self.session.post(url, json=json_body, stream=stream,
-                                     timeout=timeout or self.timeout)
+            try:
+                resp = self.session.post(url, json=json_body, stream=stream,
+                                         timeout=timeout or self.timeout)
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.ChunkedEncodingError):
+                # Transport error -- connection reset / dropped mid-stream. Retry
+                # with backoff like a 429; on the final attempt re-raise so the
+                # caller sees the failure (mirrors exhausting 429 retries).
+                if attempt == max_retries:
+                    raise
+                time.sleep(min(backoff * (2 ** attempt), 60))
+                continue
             if resp.status_code == 429 or resp.status_code >= 500:
                 if attempt == max_retries:
                     # Final failed attempt: close BEFORE raising so the pooled
