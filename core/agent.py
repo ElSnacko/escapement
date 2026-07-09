@@ -84,6 +84,23 @@ def _tool_sig(spec: dict) -> str:
     return ", ".join(name + ("" if name in required else "?") for name in props)
 
 
+def _num(d: dict, key: str, default=0):
+    """Numeric ``d[key]`` coerced to a real number, or ``default``.
+
+    A timings dict from llama.cpp / vLLM can carry ``None`` for a field the
+    server didn't populate (e.g. ``predicted_ms: null`` when no speculative
+    decode ran). ``d.get(key, 0)`` returns the stored ``None`` when the key is
+    *present*, so ``sum(None + 0)`` TypeErrors and kills the whole perf rollup
+    -- taking the trial's result dict with it. Treat None / non-numeric values
+    as the default so the arithmetic is always valid."""
+    v = d.get(key, default)
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, (int, float)):
+        return v
+    return default
+
+
 def _looks_degenerated(text: str) -> bool:
     """Crude degeneration check: repetitive control tokens or a tight loop of
     the same short substring. Catches the gemma-4 ``<|channel>thought`` loop and
@@ -195,12 +212,17 @@ class Agent:
         turns = [t for t in self.perf_turns if isinstance(t, dict)]
         if not turns:
             return {"turns": 0}
-        pred_n = sum(t.get("predicted_n", 0) for t in turns)
-        pred_ms = sum(t.get("predicted_ms", 0) for t in turns)
-        prompt_ms = sum(t.get("prompt_ms", 0) for t in turns)
-        draft_n = sum(t.get("draft_n", 0) for t in turns)
-        draft_acc = sum(t.get("draft_n_accepted", 0) for t in turns)
-        mean_pps = sum(t.get("predicted_per_second", 0) for t in turns) / len(turns)
+        pred_n = sum(_num(t, "predicted_n") for t in turns)
+        pred_ms = sum(_num(t, "predicted_ms") for t in turns)
+        prompt_ms = sum(_num(t, "prompt_ms") for t in turns)
+        draft_n = sum(_num(t, "draft_n") for t in turns)
+        draft_acc = sum(_num(t, "draft_n_accepted") for t in turns)
+        mean_pps = sum(_num(t, "predicted_per_second") for t in turns) / len(turns)
+        # draft_accept_rate is only meaningful when the server actually reported
+        # accepted drafts. If every turn left ``draft_n_accepted`` absent/None,
+        # the summed total is 0 not because nothing was accepted but because
+        # nothing was measured -- report None (unknown) rather than a misleading 0.0.
+        any_accepted = any(t.get("draft_n_accepted") is not None for t in turns)
         return {
             "turns": len(turns),
             "predicted_tokens": pred_n,
@@ -209,7 +231,8 @@ class Agent:
             "predicted_per_second": round(pred_n / (pred_ms / 1000), 2) if pred_ms else None,
             "mean_predicted_per_second": round(mean_pps, 2),
             "prompt_ms": round(prompt_ms, 1),
-            "draft_accept_rate": round(draft_acc / draft_n, 3) if draft_n else None,
+            "draft_accept_rate": round(draft_acc / draft_n, 3)
+            if draft_n and any_accepted else None,
         }
 
     # -- dispatch a single tool call into the sandbox ------------------------
@@ -296,24 +319,43 @@ class Agent:
                 self.on_event("engine_error", {"error": str(exc)[:200]})
                 break
 
-            usage = turn.get("usage") or {}
+            # A misbehaving engine/wrapper can return a non-dict turn (None, a
+            # bare string, or a list) instead of the expected message dict.
+            # `turn.get("usage")` below would AttributeError and kill the trial
+            # outright. Treat it as an engine error (mirrors the except branch)
+            # rather than crashing on the first attribute access.
+            if not isinstance(turn, dict):
+                self.on_event("engine_error",
+                              {"error": f"non-dict turn: {type(turn).__name__}"[:200]})
+                break
+
             # Coerce token counts defensively: some gateways echo non-numeric
             # values (null on rate-limit, or "10"/"5" as strings). A bare
             # `.get(k, 0)` default is defeated when the key is present with a
             # non-int value -- None+0 TypeErrors the trial and "10"+"5" silently
             # concatenates to 105 (inflating total_tokens 7x). Sum each as a
             # real int so the arithmetic is correct regardless of wire type.
+            # `usage` itself can be a non-dict (a bare string/null under a
+            # misbehaving proxy); `turn.get("usage") or {}` only guards the
+            # falsy case, leaving a truthy non-dict to AttributeError `.get`.
+            usage = turn.get("usage")
+            if not isinstance(usage, dict):
+                usage = {}
             def _tok(key):
                 try:
                     return int(usage.get(key, 0) or 0)
                 except (TypeError, ValueError):
                     return 0
             self.total_tokens += _tok("prompt_tokens") + _tok("completion_tokens")
-            msg = turn.get("message") or {}
-            timings = turn.get("timings") or {}
-            if timings:
+            msg = turn.get("message")
+            if not isinstance(msg, dict):
+                msg = {}
+            timings = turn.get("timings")
+            if isinstance(timings, dict) and timings:
                 self.perf_turns.append(timings)
             reasoning = turn.get("reasoning") or ""
+            if not isinstance(reasoning, str):
+                reasoning = str(reasoning) if reasoning is not None else ""
             if reasoning:
                 self.reasoning.append(reasoning)
                 self.on_event("reasoning", {"step": self.steps,

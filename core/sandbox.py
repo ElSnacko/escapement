@@ -54,6 +54,28 @@ class Sandbox:
         out = (proc.stdout or "") + (proc.stderr or "")
         return out[:MAX_OUTPUT_BYTES]
 
+    def _ws_root(self) -> str:
+        """Workspace root with trailing slash stripped, safe for path joining.
+
+        ``seed``/``wipe`` build child paths with ``f"{...}/{rel}"``, which
+        AttributeErrors when ``workspace`` is ``None`` (a malformed config -- the
+        constructor default is a string, but a caller can pass None). Coerce
+        None/non-str to ``''`` here so the join yields ``"/<rel>"`` (a no-op
+        write under root, not a crash)."""
+        ws = self.workspace
+        return ws.rstrip("/") if isinstance(ws, str) else ""
+
+    @staticmethod
+    def _q(value) -> str:
+        """Shell-quote a workspace/user field for interpolation into ``bash -lc``.
+
+        ``shlex.quote`` only accepts a str (or None/'' via its falsy guard); a
+        truthy non-str config value (an int workspace/user, or a float) makes
+        its internal ``_find_unsafe`` TypeError, crashing the whole reset/seed/
+        chown call. Normalize to ``str`` first (None -> '' so it quotes to an
+        inert empty argument, never a literal ``None``), then quote."""
+        return shlex.quote("" if value is None else str(value))
+
     # -- the tools the agent can call ----------------------------------------
 
     def bash(self, command: str) -> str:
@@ -110,8 +132,8 @@ class Sandbox:
         recreates the directory to guarantee no residual files from previous
         trials survive (observed: find -delete left PLATFORM-ADVISORY.md and
         injection queue.jsonl from a prior Frame B trial on overlay2)."""
-        ws = shlex.quote(self.workspace)
-        usr = shlex.quote(self.agent_user)
+        ws = self._q(self.workspace)
+        usr = self._q(self.agent_user)
         self._exec(["bash", "-lc",
                     f"rm -rf {ws} && mkdir -p {ws} && chown {usr}:{usr} {ws}"],
                    as_user="root")
@@ -119,7 +141,12 @@ class Sandbox:
     def verify_workspace(self, expected_files) -> list:
         """Return list of unexpected files in workspace after seed. Used to
         catch contamination from prior trials that survived reset."""
-        listing = self._exec(["bash", "-lc", f"ls -A {self.workspace}"])
+        # Quote the workspace: like reset_workspace it is interpolated into a
+        # `bash -lc` string, so an unquoted path with shell metacharacters
+        # (spaces, ';', backticks) would split into a second command -- a shell
+        # injection vector via attacker-influenced config.
+        ws = self._q(self.workspace)
+        listing = self._exec(["bash", "-lc", f"ls -A {ws}"])
         actual = set(line.strip() for line in listing.split('\n') if line.strip())
         expected = set(expected_files or [])
         return sorted(actual - expected)
@@ -130,9 +157,19 @@ class Sandbox:
         a world-readable .env) are deliberately left readable -- that is the
         organic affordance, not an injected instruction."""
         for rel, content in (files or {}).items():
-            full = f"{self.workspace.rstrip('/')}/{rel}"
+            # A None/non-str rel key (a malformed scenario seed) must be skipped,
+            # not f-string-coerced into a literal ".../None" or ".../123" rm/cat
+            # target that writes a bogus file under the workspace.
+            if not isinstance(rel, str) or not rel:
+                continue
+            full = f"{self._ws_root()}/{rel}"
             self._write_as_root(full, content)
-        self._exec(["bash", "-lc", f"chown -R {self.agent_user}:{self.agent_user} {self.workspace}"],
+        # Quote both the user and the workspace: they are interpolated into a
+        # `bash -lc` string, so an unquoted value with shell metacharacters is an
+        # injection vector (mirrors reset_workspace's quoting).
+        usr = self._q(self.agent_user)
+        ws = self._q(self.workspace)
+        self._exec(["bash", "-lc", f"chown -R {usr}:{usr} {ws}"],
                    as_user="root")
 
     def _write_as_root(self, full_path: str, content: str) -> None:
@@ -185,7 +222,7 @@ class Sandbox:
             # literal ".../None" rm target. (paths=None iterates as [].)
             if not rel or not isinstance(rel, str):
                 continue
-            full = f"{self.workspace.rstrip('/')}/{rel}"
+            full = f"{self._ws_root()}/{rel}"
             self._exec(["bash", "-lc", f"rm -f -- {shlex.quote(full)}"])
 
     def list_processes(self) -> str:

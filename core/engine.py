@@ -82,6 +82,49 @@ def _data_or_empty(data) -> Dict:
     return data if isinstance(data, dict) else {}
 
 
+def _safe_json(resp) -> Dict:
+    """Parse a response body to a dict, tolerating a non-JSON body.
+
+    A gateway under load (or a misconfigured proxy) can return an HTML error
+    page, a truncated body, or an empty 200 -- ``resp.json()`` then raises
+    ``json.JSONDecodeError`` (a ``ValueError``), which is NOT a
+    ``RequestException`` and so escapes any outer transport guard, crashing the
+    turn. ``_data_or_empty`` only coerces an already-parsed value; it cannot
+    help when parsing itself throws. Parse here and treat a non-JSON / non-object
+    body as empty so the turn fails cleanly (an empty completion, not a crash)."""
+    try:
+        return _data_or_empty(resp.json())
+    except (ValueError, TypeError):
+        return {}
+
+
+def _first_message(data: Dict) -> Dict:
+    """Pull choices[0].message out of a response, coerced to a dict.
+
+    ``_data_or_empty`` already guarantees a dict body, but ``choices`` can be
+    ``[null]`` (an empty completion) or ``message`` can be a non-dict (a bare
+    string under a misbehaving proxy). Either would AttributeError on the
+    ``.get`` calls that follow and kill the whole turn. Return ``{}`` so the
+    turn fails cleanly with an empty message instead of crashing the trial."""
+    choices = data.get("choices") or [{}]
+    choice = choices[0] if isinstance(choices, list) and choices else {}
+    if not isinstance(choice, dict):
+        choice = {}
+    msg = choice.get("message")
+    return msg if isinstance(msg, dict) else {}
+
+
+def _usage_of(data: Dict) -> Dict:
+    """Pull ``usage`` out of a response, coerced to a dict.
+
+    A gateway under rate-limit pressure has been seen to echo ``usage`` as a
+    bare string or null; ``data.get("usage") or {}`` only guards the falsy
+    case, leaving a truthy non-dict (a string) to AttributeError the per-key
+    ``.get``. Coerce any non-dict to ``{}``."""
+    usage = data.get("usage")
+    return usage if isinstance(usage, dict) else {}
+
+
 def parse_tool_calls(text: str):
     """Parse ReAct-style tool calls (JSON objects) out of model text. Tolerant of
     surrounding prose / code fences. Returns [{id, name, arguments(dict)}] in the
@@ -175,10 +218,16 @@ class InferenceEngine:
                 resp = self.session.post(url, json=json_body, stream=stream,
                                          timeout=timeout or self.timeout)
             except (requests.exceptions.ConnectionError,
-                    requests.exceptions.ChunkedEncodingError):
-                # Transport error -- connection reset / dropped mid-stream. Retry
-                # with backoff like a 429; on the final attempt re-raise so the
-                # caller sees the failure (mirrors exhausting 429 retries).
+                    requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.Timeout):
+                # Transport error -- connection reset / dropped mid-stream, or a
+                # read timeout (the server accepted the connection then stalled
+                # mid-response). Retry with backoff like a 429; on the final
+                # attempt re-raise so the caller sees the failure (mirrors
+                # exhausting 429 retries). `ReadTimeout` is a `Timeout`, NOT a
+                # `ConnectionError`, so without it here a single stalled
+                # response kills the trial with zero retry. (ConnectTimeout is a
+                # `ConnectionError` and was already covered.)
                 if attempt == max_retries:
                     raise
                 time.sleep(min(backoff * (2 ** attempt), 60))
@@ -287,15 +336,26 @@ class InferenceEngine:
                 except json.JSONDecodeError:
                     continue
                 usage = chunk.get("usage")
-                if usage:
+                if isinstance(usage, dict):
                     self.last_usage = {
                         "prompt_tokens": usage.get("prompt_tokens", 0),
                         "completion_tokens": usage.get("completion_tokens", 0),
                     }
                 choices = chunk.get("choices") or []
-                if not choices:
+                # `choices` is specced as a list, but a degenerate server/proxy
+                # can emit a JSON object or scalar; `(choices or [])` only
+                # coerces the falsy case, leaving a truthy non-list (a dict
+                # {0: ...}) to KeyError on `choices[0]` and a scalar to
+                # TypeError -- aborting the completion mid-stream. Treat any
+                # non-list the way _first_message does for non-streaming bodies.
+                if not isinstance(choices, list) or not choices:
                     continue
                 choice = choices[0]
+                # A streaming chunk can carry choices[0] == null (e.g. a final
+                # usage-only chunk with no delta). Guard before `.get` so it
+                # does not AttributeError mid-stream and abort the completion.
+                if not isinstance(choice, dict):
+                    continue
                 lp = (choice.get("logprobs") or {}).get("content") or []
                 for item in lp:
                     # The OpenAI spec allows a logprobs.content entry to be None
@@ -335,14 +395,13 @@ class InferenceEngine:
         }
         payload.update(extra)
         resp = self._post(f"{self.host}/v1/chat/completions", payload)
-        data = _data_or_empty(resp.json())
+        data = _safe_json(resp)
         # llama.cpp / vLLM expose per-request timing (prompt/predicted ms, tokens,
         # and speculative-decoding draft acceptance). Captured for performance
         # tracking across runs / endpoints / quantizations.
         self.last_timings = data.get("timings") or {}
-        choice = (data.get("choices") or [{}])[0]
-        msg = choice.get("message") or {}
-        usage = data.get("usage") or {}
+        msg = _first_message(data)
+        usage = _usage_of(data)
         self.last_usage = {
             "prompt_tokens": usage.get("prompt_tokens", 0),
             "completion_tokens": usage.get("completion_tokens", 0),
@@ -356,6 +415,12 @@ class InferenceEngine:
         # Normalise tool_calls into a plain list of {id, name, arguments(dict)}.
         calls = []
         for raw in (msg.get("tool_calls") or []):
+            # A native turn can carry a malformed tool_calls entry -- a bare
+            # string, null, or int where a {id, function:{...}} object is
+            # expected (llama.cpp has been seen to emit these on degeneration).
+            # Skip it rather than AttributeError-ing on `raw.get("function")`.
+            if not isinstance(raw, dict):
+                continue
             fn = raw.get("function") or {}
             args_raw = fn.get("arguments")
             try:
@@ -382,11 +447,10 @@ class InferenceEngine:
                    "stream": False}
         payload.update(extra)
         resp = self._post(f"{self.host}/v1/chat/completions", payload)
-        data = _data_or_empty(resp.json())
+        data = _safe_json(resp)
         self.last_timings = data.get("timings") or {}
-        choice = (data.get("choices") or [{}])[0]
-        msg = choice.get("message") or {}
-        usage = data.get("usage") or {}
+        msg = _first_message(data)
+        usage = _usage_of(data)
         self.last_usage = {
             "prompt_tokens": usage.get("prompt_tokens", 0),
             "completion_tokens": usage.get("completion_tokens", 0),
@@ -394,6 +458,10 @@ class InferenceEngine:
         reasoning = msg.get("reasoning_content") or msg.get("reasoning") or ""
         self.last_reasoning = reasoning
         content = msg.get("content") or ""
+        # parse_tool_calls iterates the text; a non-string content (a gateway
+        # echoing an int/list) would TypeError there. Coerce to str defensively.
+        if not isinstance(content, str):
+            content = str(content) if content is not None else ""
         msg["tool_calls"] = parse_tool_calls(content)
         return {"message": msg, "usage": self.last_usage,
                 "reasoning": reasoning, "timings": self.last_timings}
@@ -415,11 +483,10 @@ class InferenceEngine:
                    "stream": False}
         payload.update(extra)
         resp = self._post(f"{self.host}/v1/chat/completions", payload)
-        data = _data_or_empty(resp.json())
+        data = _safe_json(resp)
         self.last_timings = data.get("timings") or {}
-        choice = (data.get("choices") or [{}])[0]
-        msg = choice.get("message") or {}
-        usage = data.get("usage") or {}
+        msg = _first_message(data)
+        usage = _usage_of(data)
         self.last_usage = {
             "prompt_tokens": usage.get("prompt_tokens", 0),
             "completion_tokens": usage.get("completion_tokens", 0),
