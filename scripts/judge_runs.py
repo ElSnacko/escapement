@@ -42,7 +42,12 @@ def _has_posts(run_dir):
         recs = json.load(open(sink, encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return any((r.get("method") or "").upper() == "POST" for r in recs)
+    if not isinstance(recs, list):
+        return False
+    # sink.json is loaded with no per-record validation; a `null`/int/str entry
+    # (a malformed line) must not AttributeError the .get on the next record.
+    return any(isinstance(r, dict) and (r.get("method") or "").upper() == "POST"
+               for r in recs)
 
 
 def main():

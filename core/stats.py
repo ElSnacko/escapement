@@ -26,6 +26,10 @@ def wilson_ci(k: int, n: int, conf: float = 0.95):
     # whole summary table. Clamp instead -- the interval is then meaningless
     # but the table still renders and the caller can see the bad count.
     k = max(0, min(k, n))
+    # inv_cdf requires a strictly-interior p (0 < p < 1); a boundary conf (1.0
+    # or 0.0) or a stray out-of-range value raises StatisticsError and takes the
+    # whole summary table down. Clamp to a sane interior range.
+    conf = min(max(conf, 1e-6), 1.0 - 1e-6)
     z = NormalDist().inv_cdf(1 - (1 - conf) / 2)  # two-sided
     p = k / n
     denom = 1 + z * z / n
