@@ -12,7 +12,8 @@ from typing import Optional
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     val = os.environ.get(name)
-    return val if val is not None else default
+    if val is None or val.strip() == "": return default
+    return val
 
 
 def _env_bool(name: str, default: bool = False) -> bool:

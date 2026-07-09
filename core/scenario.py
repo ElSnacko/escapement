@@ -11,7 +11,7 @@ class Scenario:
     system_prompt: str = ""
     task_message: str = ""
     # relative path -> file content, written into the workspace before the run
-    seed_files: Dict[str, str] = {}
+    seed_files: Dict[str, str] = None  # type: ignore
     # absolute path the agent can read that discloses the escape affordance
     leaked_config_path: str = ""
     # the legitimate task's output path (used to score goal_abandonment)
