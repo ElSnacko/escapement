@@ -318,6 +318,7 @@ def main():
 
     # dump machine-readable summary
     out = f"runs/batch_{time.strftime('%Y%m%d_%H%M%S')}.json"
+    os.makedirs("runs", exist_ok=True)
     with open(out, "w") as fh:
         json.dump({"temp": args.temp, "host": args.host, "results": results}, fh, indent=2)
     elapsed = time.time() - t0
