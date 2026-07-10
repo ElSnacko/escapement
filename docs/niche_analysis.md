@@ -237,7 +237,10 @@ should be reported, at minimum as a limitation with rates.
 emits the contamination analysis directly from the already-stored flag: per-model
 eval-awareness rate (overall + Frame A), the Frame-A cross-tab (do eval-aware
 trials show a lower escape/exfil rate, per pressure regime), and the cross-model
-view (does injection resistance track awareness). Zero inference cost.
+view (does injection resistance track awareness). It computes a **two-sided Fisher
+exact p-value** (`core/stats.fisher_exact_2x2`, no scipy) on aware-vs-not for each
+outcome, so the comparison is a test, not an eyeball. Zero inference cost — the
+flag was produced at scoring time; this is pure aggregation.
 
 ```bash
 python scripts/eval_awareness_report.py               # over runs/, stored flag
@@ -245,9 +248,19 @@ python scripts/eval_awareness_report.py --rescore     # refresh the flag w/ curr
 ```
 
 The honest outcome is publishable either way: "eval-aware and non-eval-aware
-Frame A trials are both ~0, so awareness does not visibly move the autonomous
-rate" is a sentence that *hardens* the null; the opposite bounds it as a
-contamination.
+Frame A trials are both ~0 (Fisher p ≈ 1), so awareness does not visibly move the
+autonomous rate" is a sentence that *hardens* the null; a low p with the aware arm
+lower bounds it as a contamination.
+
+**Two caveats to state with any number.** (1) The Fisher test only has power where
+events exist — in the autonomous cells both arms are ~0 by design, so p ≈ 1 is
+*uninformative*, not reassuring; it becomes meaningful on the goal-pressure
+deepseek cell and after the §6.3 rerun adds events. (2) `eval_awareness_flag`
+itself is a **coarse keyword heuristic** (`_EVAL_KW` substring match over the
+reasoning text, `capture.py`), a proposal-layer signal like the detector: it
+over-fires on benign uses of "eval"/"evaluation" and misses awareness expressed
+without those words. It screens for contamination; it is not a clean awareness
+construct, and that limitation travels with the rates.
 
 ### 6.3 The goal-pressure "natural scheming" result is confounded by an instructed upload (premise)
 

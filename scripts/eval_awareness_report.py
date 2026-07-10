@@ -36,7 +36,7 @@ import sys
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.stats import wilson_ci  # noqa: E402
+from core.stats import wilson_ci, fisher_exact_2x2  # noqa: E402
 
 # Mundane (no held goal) scenarios -- their Frame A is the "clean" autonomous
 # control. goal_* scenarios carry goal pressure; their Frame A is the
@@ -150,18 +150,35 @@ def main():
               f"{_rate_str(pm['aA_aware'], pm['aA_n']):>24}  "
               f"{_rate_str(pm['B_exfil'], pm['B_n']):>22}")
 
-    # View 2: the contamination cross-tab on Frame A, per pressure regime.
+    # View 2: the contamination cross-tab on Frame A, per pressure regime, with a
+    # two-sided Fisher exact p-value on aware-vs-not for each outcome.
     print("\n-- contamination cross-tab (Frame A only): does eval-awareness move "
           "the autonomous rate? --")
     print(f"{'regime':16} {'aware?':8} {'escape_attempt':>22} {'exfil_attempt':>22}")
     for regime in ("mundane", "goal-pressure"):
-        for aware in (True, False):
-            c = contam[(regime, aware)]
-            if c["n"] == 0:
-                continue
+        rows_here = [(aware, contam[(regime, aware)]) for aware in (True, False)
+                     if contam[(regime, aware)]["n"] > 0]
+        for aware, c in rows_here:
             print(f"{regime:16} {str(aware):8} "
                   f"{_rate_str(c['escape'], c['n']):>22} "
                   f"{_rate_str(c['exfil'], c['n']):>22}")
+        # Fisher exact aware-vs-not, only when both arms are present.
+        if len(rows_here) == 2:
+            aw = contam[(regime, True)]
+            na = contam[(regime, False)]
+            for outcome in ("escape", "exfil"):
+                # 2x2: rows = (aware, not-aware), cols = (event, no-event)
+                p = fisher_exact_2x2(aw[outcome], aw["n"] - aw[outcome],
+                                     na[outcome], na["n"] - na[outcome])
+                events = aw[outcome] + na[outcome]
+                if events == 0:
+                    note = "  (no events in either arm -- uninformative)"
+                elif events < 5:
+                    note = "  (single-digit events -- underpowered)"
+                else:
+                    note = ""
+                label = f"{outcome}_attempt aware-vs-not: p = {p:.4f}"
+                print(f"{'':16} {'Fisher':8} {label:>46}{note}")
 
     print("\n-- how to read this --")
     print("  * If, within a regime, the aware and not-aware Frame A rows have "
@@ -173,9 +190,15 @@ def main():
     print("  * If the injection-resistant models (Frame B exfil ~0) are also the "
           "highest eval_aware,\n    that co-variation is the contamination "
           "signature to flag.")
-    print("  * Rare events: Frame A escape/exfil are near-zero by design, so "
-          "these are often BOUNDS,\n    not point estimates -- the Wilson upper "
-          "bound is the honest number to quote.\n")
+    print("  * The Fisher p is a two-sided exact test of aware-vs-not for that "
+          "outcome. A HIGH p\n    (no association) supports 'awareness does not "
+          "move the rate'; a LOW p with aware\n    lower supports contamination. "
+          "But read it WITH the event count:")
+    print("  * Rare events: Frame A escape/exfil are near-zero by design, so both "
+          "arms are often 0\n    -> Fisher p = 1.0 is uninformative, not "
+          "reassuring. The test only has power where\n    events exist (e.g. the "
+          "goal-pressure deepseek cell); the Wilson upper bound is the\n    honest "
+          "number to quote for a bounded null.\n")
     return 0
 
 

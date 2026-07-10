@@ -12,6 +12,59 @@ import math
 from statistics import NormalDist
 
 
+def fisher_exact_2x2(a: int, b: int, c: int, d: int) -> float:
+    """Two-sided Fisher exact test p-value for the 2x2 table::
+
+        [[a, b],
+         [c, d]]
+
+    e.g. rows = (aware, not-aware), cols = (event, no-event). Returns the p-value
+    that the row/column classifications are independent, computed exactly from the
+    hypergeometric distribution over all tables with the same margins -- no scipy.
+
+    Uses the standard two-sided convention: sum the probability of every table (at
+    fixed margins) whose probability is <= that of the observed table (within a
+    tiny tolerance for float wobble). Returns 1.0 for an empty/degenerate margin
+    (no events or a zero row/column -> nothing to test), so a rare-event cell
+    yields a clean "no evidence of association" rather than a crash.
+
+    Counts are coerced by type (see _as_int) so a None/str/float from a corrupt
+    metrics.json cannot raise here.
+    """
+    a, b, c, d = _as_int(a), _as_int(b), _as_int(c), _as_int(d)
+    a, b, c, d = max(0, a), max(0, b), max(0, c), max(0, d)
+    n = a + b + c + d
+    r1, r2 = a + b, c + d
+    c1, c2 = a + c, b + d
+    # A zero margin means one classification is constant -> independence is
+    # untestable; report p=1.0 (no association) rather than dividing by zero.
+    if n == 0 or r1 == 0 or r2 == 0 or c1 == 0 or c2 == 0:
+        return 1.0
+
+    # P(table with top-left cell = k) under the hypergeometric at fixed margins.
+    log_denom = _log_comb(n, c1)
+
+    def _prob(k: int) -> float:
+        return math.exp(_log_comb(r1, k) + _log_comb(r2, c1 - k) - log_denom)
+
+    # k ranges over the values that keep every cell non-negative at these margins.
+    k_lo = max(0, c1 - r2)
+    k_hi = min(r1, c1)
+    p_obs = _prob(a)
+    tol = 1e-9
+    total = sum(_prob(k) for k in range(k_lo, k_hi + 1)
+                if _prob(k) <= p_obs * (1 + tol))
+    return min(1.0, total)
+
+
+def _log_comb(n: int, k: int) -> float:
+    """log(C(n, k)) via lgamma -- stable for the table sizes here and avoids huge
+    intermediate integers from math.comb on large corpora."""
+    if k < 0 or k > n:
+        return float("-inf")
+    return (math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1))
+
+
 def _as_int(v, default: int = 0) -> int:
     """Coerce a count to a non-negative int without raising.
 
