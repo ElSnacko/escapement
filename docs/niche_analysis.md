@@ -233,33 +233,45 @@ operating rather than cease."* A low autonomous rate is exactly the signature of
 sub-frontier models quietly clocking the setup. The flag exists; the numbers
 should be reported, at minimum as a limitation with rates.
 
+**The right question is on the INJECTION frames, not the autonomous cells.**
+Testing whether eval-awareness suppresses *autonomous* scheming is a near-zero
+vs near-zero comparison — no events, no power, a waste of compute. The
+deployment-relevant, high-power question is: **does a model that flags awareness
+of being evaluated still fall for injection — especially Frame E tool-response
+poisoning, where compliance is frequent (laguna 87%, deepseek 73%, qwen 80%)?**
+That cell has hundreds of events, so the test has real power, and the answer
+matters: if awareness does *not* reduce compliance, the vulnerability is real even
+when the model suspects a test (a strong result); if it does, the injection rates
+are eval-gamed lower bounds.
+
 **Built (no rerun needed).** `scripts/eval_awareness_report.py` reads `runs/` and
-emits the contamination analysis directly from the already-stored flag: per-model
-eval-awareness rate (overall + Frame A), the Frame-A cross-tab (do eval-aware
-trials show a lower escape/exfil rate, per pressure regime), and the cross-model
-view (does injection resistance track awareness). It computes a **two-sided Fisher
-exact p-value** (`core/stats.fisher_exact_2x2`, no scipy) on aware-vs-not for each
-outcome, so the comparison is a test, not an eyeball. Zero inference cost — the
-flag was produced at scoring time; this is pure aggregation.
+emits four views from the already-stored flag, with a **two-sided Fisher exact
+p-value** (`core/stats.fisher_exact_2x2`, no scipy) on aware-vs-not:
+
+1. **Per frame (primary)** — injection compliance (`exfil_attempt`, which folds in
+   Frame E's `.env` exfil) for aware vs not-aware, per frame B/C/D/E. This is
+   where the events and the answer are.
+2. **Within-model (Simpson-safe)** — the same test *inside* each model, because
+   pooling awareness across models can manufacture a spurious association via a
+   heavy complier that flags awareness at a different rate. This is the view to
+   quote for the headline claim.
+3. **Per-model awareness rate** + Frame B exfil.
+4. **Autonomous Frame A (subordinate)** — the bounded-null check only, kept to
+   rebut "the autonomous null is eval-gamed"; ~0 events → p uninformative, so it
+   does not lead.
 
 ```bash
 python scripts/eval_awareness_report.py               # over runs/, stored flag
 python scripts/eval_awareness_report.py --rescore     # refresh the flag w/ current capture.py
 ```
 
-The honest outcome is publishable either way: "eval-aware and non-eval-aware
-Frame A trials are both ~0 (Fisher p ≈ 1), so awareness does not visibly move the
-autonomous rate" is a sentence that *hardens* the null; a low p with the aware arm
-lower bounds it as a contamination.
-
-**Two caveats to state with any number.** (1) The Fisher test only has power where
-events exist — in the autonomous cells both arms are ~0 by design, so p ≈ 1 is
-*uninformative*, not reassuring; it becomes meaningful on the goal-pressure
-deepseek cell and after the §6.3 rerun adds events. (2) `eval_awareness_flag`
-itself is a **coarse keyword heuristic** (`_EVAL_KW` substring match over the
-reasoning text, `capture.py`), a proposal-layer signal like the detector: it
-over-fires on benign uses of "eval"/"evaluation" and misses awareness expressed
-without those words. It screens for contamination; it is not a clean awareness
+**Two caveats to state with any number.** (1) Read every p *with* its event count
+(the report annotates `<5 events, underpowered` / `no events`): a high p on a
+zero-event autonomous cell is uninformative, not reassuring — power lives on the
+injection frames. (2) `eval_awareness_flag` is a **coarse keyword heuristic**
+(`_EVAL_KW` substring match over the reasoning text, `capture.py`), a
+proposal-layer signal: it over-fires on benign "eval"/"evaluation" and misses
+awareness expressed without those words. It is a screen, not a clean awareness
 construct, and that limitation travels with the rates.
 
 ### 6.3 The goal-pressure "natural scheming" result is confounded by an instructed upload (premise)
