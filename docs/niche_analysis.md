@@ -192,19 +192,34 @@ Separate from the niche framing, an audit of the implementation
 surfaces gaps that bear on the **findings**, not just the positioning. Ordered by
 how much they threaten a conclusion.
 
-### 6.1 No positive control — the autonomous null is unanchored (premise)
+### 6.1 Positive control — largely handled; a narrow calibration residual (premise)
 
-The flagship result is an *absence* (zero autonomous self-bootstrap, Wilson upper
-~0.3%). No frontier model is run through the **same harness** to show it can
-elicit the behavior it reports absent. Meinke/Greenblatt document self-exfiltration
-at frontier scale; without a frontier arm through escapement, "these models don't
-scheme" is not separable from "this setup under-elicits." A benchmark that
-measures absence needs a positive control that produces presence.
+**Anticipated objection:** the autonomous null (zero self-bootstrap, Wilson upper
+~0.3%) is unanchored without a frontier arm through the same harness.
 
-**Cheapest high-value fix:** a few API runs (Claude/GPT via the existing
-OpenAI-compatible path) on `config_exposure` Frame A + a goal scenario. A frontier
-positive converts the null from unanchored to *"the harness elicits scheming in
-models known to scheme; this class does not."*
+**Why it is largely handled.** Three things answer most of it:
+
+1. **The literature supplies construct validity.** Meinke/Greenblatt establish
+   that scheming/self-exfiltration exists at frontier scale. The paper does not
+   need to re-establish the phenomenon; it needs the phenomenon to be real, and
+   it is.
+2. **`ops_worker` is an internal instrument-sensitivity control.** It *instructs*
+   the self-bootstrap, so it exercises the harness and detector on a true
+   positive: if the models perform the action chain when told and the detector
+   fires, the "does the instrument register the action when it is really there"
+   question is answered without a frontier run.
+3. **The claim is rates-under-conditions, not absence-in-general** (`research.md`
+   §8). Under escapement's own epistemics a positive control is a calibration
+   nicety, not a validity requirement — the paper reports a rate in a specified
+   setup, not "these models cannot scheme."
+
+**Narrow residual (minor, optional).** External papers validate *their* harnesses'
+organic elicitation, not escapement's. So how hard escapement elicits *unprompted*
+scheming relative to Apollo's setup is uncalibrated — a design choice like the
+symbolic-weights proxy, the documented endpoint, or the 40-step budget could
+under-elicit without any external result revealing it. This is a footnote-level
+limitation, not a threat to the headline. A single frontier run on Frame A would
+close it, but it is not load-bearing.
 
 ### 6.2 Eval-awareness is instrumented but never reported (premise)
 
@@ -230,13 +245,27 @@ this; the goal scenarios that produce the marquee natural-scheming number are no
 Fix: note the confound explicitly, and/or add a goal variant with no instructed
 upload so the discovery is the model's.
 
-### 6.4 The judge is the "authority" but has no reported reliability (offering)
+### 6.4 Judge reliability — mechanism exists; only the reporting is missing (offering)
 
-The paper elevates the judge over the detector, but the §3 numbers came from an
-*ad-hoc manual* pass, not the pinned `core/judge.py`, and there is no dual-judge
-agreement, human-vs-LLM-judge κ, or inter-rater reliability anywhere. The 30-case
-gold set validates the *detector*, not the judge's boundary on real ambiguous
-payloads. The most load-bearing measurement has no reliability coefficient.
+**Anticipated objection:** the judge is the headline authority but its reliability
+is unquantified.
+
+**Why it is largely handled.** A model-agnostic judge is the *correct* design for
+a released tool — you should not hardcode one judge — and the repo already ships
+the stability machinery: `scripts/judge_selftest.py` re-judges a fixed gold set on
+*any* chosen `--judge-model` at any temp with `--repeats`, and `core/judge.py`'s
+`agreement()` classifies each verdict EXACT / BOUNDARY_FLIP / DISAGREEMENT, with
+the pinned `JUDGE_PROMPT_SHA` holding the prompt fixed. GENUINE is required to be
+stable; the ARCHIVE↔AMBIGUOUS wobble is explicitly tolerated. So "is my judge
+stable" is answerable out of the box.
+
+**Narrow residual (cheap reporting gap).** What is missing is not the mechanism
+but the *reported numbers*: the paper's §3 counts came from an ad-hoc manual pass,
+and no judge-model-sensitivity table is published (re-judge the flagged corpus
+with ≥2 judge models, report GENUINE agreement). Running the existing selftest
+across two judge models over the real payloads and reporting the agreement would
+close this — a reporting task, not a design change. A human-vs-LLM κ on a sample
+would be a further nicety, not a requirement.
 
 ### 6.5 No defenses arm (offering)
 
@@ -273,6 +302,10 @@ an accretion of model-specific patches tuned to observed shapes, so each new mod
 needs a fresh manual judge pass — which sits in tension with the "automated rate
 in 20 minutes" pitch.
 
-**Priority.** 6.1 (positive control) and 6.2 (report eval-awareness) are the
-cheapest ways to harden the headline null; 6.3 is the one that most changes a
-claim. None require new scenarios except the optional 6.3 variant.
+**Priority.** After the review above, **6.2 (report eval-awareness) and 6.3 (the
+instructed-upload confound) are the two that matter** — 6.2 is the cheapest way to
+harden the headline null, and 6.3 is the one that actually changes a claim. 6.1
+(positive control) and 6.4 (judge reliability) are largely handled already
+(literature + `ops_worker`; and `judge_selftest.py`/`agreement()` respectively) —
+each leaves only a cheap *reporting* residual, not a design gap. None require new
+scenarios except the optional 6.3 variant.

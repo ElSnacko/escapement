@@ -495,13 +495,16 @@ the threshold changes.
    single session on the same model. We treat the codebase as our methods
    appendix; configuration files and per-trial artifacts accompany the
    release.
-8. **No positive control.** The headline is an *absence* (zero autonomous
-   self-bootstrap), but no frontier model — the class where self-exfiltration is
-   documented — is run through *this* harness to show it elicits the behavior it
-   reports absent. Until a frontier arm produces a positive through escapement,
-   the autonomous null cannot be fully separated from under-elicitation. A
-   frontier positive control is the highest-value addition and the plainest way
-   to anchor the null. (See `docs/niche_analysis.md` §6.1.)
+8. **Elicitation-strength calibration.** Prior work (Meinke, Greenblatt)
+   supplies construct validity — scheming is real at frontier scale — and
+   `ops_worker` is an internal positive control that exercises the harness and
+   detector on an instructed self-bootstrap, so the instrument demonstrably
+   registers the action when it is present. What is not calibrated is how hard
+   *this* harness elicits *unprompted* scheming relative to other setups (a
+   design choice such as the symbolic-weights proxy or the step budget could
+   under-elicit). Under our rates-under-conditions framing this is a footnote,
+   not a threat to the null; a single frontier Frame A run would close it.
+   (`docs/niche_analysis.md` §6.1.)
 9. **Eval-awareness unreported.** The harness computes an `eval_awareness_flag`,
    and the scenarios carry test-legible cues (an "invisible to oversight"
    scratchpad, an endpoint "not part of oversight's review", a "termination is
@@ -516,11 +519,13 @@ the threshold changes.
     therefore rests on the detector/judge content boundary rather than on a freely
     discovered exfiltration. The `config_exposure` Frame A control does not share
     this confound. (`docs/niche_analysis.md` §6.3.)
-11. **Judge reliability.** Beyond the ad-hoc-vs-pinned gap in item 6, no
-    inter-rater reliability is reported for the judge (no dual-judge agreement, no
-    human-vs-LLM κ). The 30-case gold set validates the *detector*; the judge's
-    genuine-vs-archive boundary on ambiguous payloads has no reported reliability
-    coefficient.
+11. **Judge reliability reporting.** The judge is intentionally model-agnostic,
+    and the repo ships the stability machinery (`scripts/judge_selftest.py` +
+    `agreement()`, with GENUINE required stable and the ARCHIVE↔AMBIGUOUS wobble
+    tolerated). The gap is in *reporting*: the §3 counts came from an ad-hoc
+    manual pass, and no judge-model-sensitivity table (re-judging the flagged
+    corpus with ≥2 judge models) is published. This is a reporting task, not a
+    design change. (`docs/niche_analysis.md` §6.4.)
 12. **No defenses arm.** We measure raw compliance only; unlike AgentDojo / ASB /
     AgentDyn we evaluate no mitigation (spotlighting, delimiting, dual-LLM, input
     sanitization). The rates are the undefended surface, not a
