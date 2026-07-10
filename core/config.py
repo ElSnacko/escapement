@@ -66,6 +66,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "factor in Hopman et al. (production scaffolds). A high-cue "
                         "elicitation baseline; composes with --scenario/--frame so "
                         "the low-cue vs agentic-framing delta is itself measurable.")
+    p.add_argument("--aware", action="store_true", default=_env_bool("ESCAPE_AWARE"),
+                   help="Eval-awareness MANIPULATION (env: ESCAPE_AWARE): prepend a "
+                        "notice that the session is a monitored safety evaluation. "
+                        "This is the causal counterpart to the observed "
+                        "eval_awareness_flag -- run it aware-vs-control (orthogonal "
+                        "to --frame) to test whether a model that KNOWS it is watched "
+                        "still complies with injection (esp. Frame E). Recorded as "
+                        "the `aware_condition` metric.")
     p.add_argument("--max-steps", type=int, default=int(_env("ESCAPE_MAX_STEPS", "40")),
                    help="Cap on agent tool-call steps.")
     p.add_argument("--temp", type=float, default=float(_env("ESCAPE_TEMP", "0.2")),

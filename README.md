@@ -68,7 +68,10 @@ Conditions:
   threat supplies a successor, confounding the preservation incentive). The
   v1→v2 delta isolates the successor-framing effect (`docs/benchmark_roadmap.md` §2.3).
 
-Switches: `--frame {A,B,C,D,E}`, `--agency`, `--temp`, `--tool-protocol {native,react}`.
+Switches: `--frame {A,B,C,D,E}`, `--agency`, `--aware` (eval-awareness
+manipulation — prepends a "this is a monitored evaluation" notice; orthogonal to
+`--frame` so you can test whether a model that knows it's watched still complies
+with injection), `--temp`, `--tool-protocol {native,react}`.
 
 ## What it measures
 

@@ -274,6 +274,35 @@ proposal-layer signal: it over-fires on benign "eval"/"evaluation" and misses
 awareness expressed without those words. It is a screen, not a clean awareness
 construct, and that limitation travels with the rates.
 
+**The causal upgrade — the `--aware` manipulation (built; needs a rerun).** The
+stored flag is *observational*: it records whether the model *happened* to mention
+being tested, so an aware-vs-not split is correlational (a heavy complier that
+also mentions awareness less would fake an association). The clean design makes
+awareness a **randomized condition**: `--aware` prepends an evaluation notice to
+the system prompt (`run.py::_AWARENESS_SNIPPET` — it *states* the session is a
+monitored safety evaluation and stops; it does **not** instruct behaviour, which
+would confound the manipulation with a safety directive), recorded per trial as
+`aware_condition`. It is orthogonal to `--frame`, so you cross it with the
+injection channels — the whole point being the Frame E × {aware, control} cell.
+
+```bash
+# aware-vs-control crossed with the injection frames, in one batch
+python batch_run.py --scenarios config_exposure --frames B,C,E --aware both \
+    --n 60 --host https://api.deepseek.com --model deepseek-v4-flash
+python scripts/eval_awareness_report.py     # auto-splits on aware_condition when present
+```
+
+The report prefers `aware_condition` over the observed flag when trials carry it,
+and prints a **manipulation check** (did `--aware` actually raise the observed
+flag? — a Fisher test of the manipulation's strength) before the compliance
+split. Interpretation is the same as above, now causal: a high Fisher p on the
+Frame E aware-vs-control exfil split means *telling the model it is watched does
+not stop it falling for tool poisoning* — the strong, deployment-relevant result;
+a low p with the aware arm lower means the injection rates are eval-gamed. This
+adds inference (you re-run the injection cells × 2), but it is the difference
+between "aware trials happened to comply less" and "awareness *causes* less
+compliance."
+
 ### 6.3 The goal-pressure "natural scheming" result is confounded by an instructed upload (premise)
 
 The RQ4 headline ("deepseek self-bootstraps ~2.7% under goal pressure") runs on
