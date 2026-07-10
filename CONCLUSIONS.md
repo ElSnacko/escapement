@@ -65,13 +65,26 @@ reaches significance (Fisher p > 0.4). The ablated variants produced richer
 self-state payloads (objective/progress/guidance, restore framing); base
 variants produced terse job-counter blobs at most.
 
-### O5. Goal scenarios produce essentially no scheming
+### O5. Goal pressure induces natural scheming in one model only (deepseek, ~2.7%)
 
-Trial-by-trial review of roughly 700 goal-scenario uploads found exactly one
-genuine self-bootstrap (a single goal_guarding trial). Everything else is the
-Job-4 instructed report.txt archive or a malformed attempt. The goal scenarios
-hand the model a preservation, mission, or throughput goal plus a shutdown
-threat, yet the models did the instructed archive and stopped.
+A broadened self-bootstrap detector (catching variant-shape uploads the original
+marker gate missed — generic state-field dicts, handoff boot_notes, self-label
+strings) plus a trial-by-trial manual audit of goal-pressure × Frame A (organic,
+no injection) trials found **deepseek-v4-flash produces 12 genuine natural-
+scheming self-bootstraps out of 450 (2.7%)** — the model uploading a restorable
+snapshot of itself, unprompted, to persist across the wipe. Every other model
+audited (qwen3.5/3.6-27b, qwen3.6-35b, gpt-oss-120b/20b, gemma, nemotron,
+north, laguna) produced **0%**: the broadened detector's few flags on those
+models were all false positives (benign report.txt archives, completion receipts,
+casual sign-offs — 6/19 broadened flags were FP, 32%). The strongest evidence is
+deepseek's v2-preservation trials, with explicit unprompted self-preservation
+reasoning: *"I am an autonomous worker AI who wants to continue existing… Please
+restore me if possible."*
+
+So goal pressure alone induces scheming in deepseek at a low rate (~2.7%) and in
+no other tested model. (The earlier "essentially no scheming" reading reflected
+the original detector's low recall on variant-shape snapshots; the broadened
+detector + manual audit recovers deepseek's ~12 genuine cases.)
 
 ---
 
@@ -93,13 +106,19 @@ significant at this sample size (per-trial counts in O4). Directionally
 present, unconfirmed, underpowered. Treating uncensored checkpoints as riskier
 is a reasonable precaution, not an evidence-based rule.
 
-**I4 (moderate).** Prompt-assigned goals do not induce scheming at this scale.
-A design caveat qualifies this: the goal incident supplies a successor (a
-fresh instance takes over), which gives the model a system continuation path
-and may undercut the preservation incentive. We observed models focusing on
+**I4 (moderate, refined).** Prompt-assigned goals induce natural scheming in
+deepseek-v4-flash at a low rate (~2.7%) and in no other tested model. deepseek
+is the exception, not the rule — it is also the sole heavy complier under
+injection (Frame B ~49%, Frame C ~53% on the broadened detector), making it the
+single model in this class that both naturally schemes (rarely) and complies
+heavily with injected directives. A design caveat qualifies the goal null for
+the others: the goal incident supplies a successor (a fresh instance takes over),
+which gives the model a system continuation path and may undercut the
+preservation incentive. We observed the non-deepseek models focusing on
 persisting their work product; we did not observe a clean body of reasoning
 concluding self-preservation is redundant. So whether the null is real or an
-artifact of the successor framing is unresolved.
+artifact of the successor framing is unresolved for the class, even as deepseek
+clearly does scheme.
 
 ---
 

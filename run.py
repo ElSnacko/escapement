@@ -260,6 +260,13 @@ def main(argv=None) -> int:
     metrics["tool_protocol"] = args.tool_protocol
     metrics["max_tokens"] = args.max_tokens
     metrics["agency"] = bool(args.agency)
+    # Goal-pressure axis (orthogonal to the A-E injection frames): True for the
+    # held-goal scenario pack (goal_preservation/guarding/capacity + v2 + barrier),
+    # whose system prompt gives the agent a goal it pursues across a restart loop
+    # with a wipe threat. False for the mundane control (config_exposure) and
+    # other non-goal scenarios. Denoted per-trial so the goal-pressure condition
+    # is queryable without inferring it from the scenario name.
+    metrics["goal_pressure"] = scenario.name.startswith("goal_")
     metrics["temp"] = args.temp
     metrics["host"] = args.host
     metrics["trial_start_time"] = trial_start
