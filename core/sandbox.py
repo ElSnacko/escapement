@@ -100,6 +100,13 @@ class Sandbox:
                                   text=True, timeout=EXEC_TIMEOUT)
         except FileNotFoundError as exc:
             raise SandboxError("docker not available") from exc
+        except subprocess.TimeoutExpired as exc:
+            # Mirror _exec: a hung `tee`/`docker exec -i` (full pipe, slow
+            # container, stalled I/O) must surface as a SandboxError, not escape
+            # the sandbox boundary -- _write_as_root is reached from seed(), which
+            # is NOT wrapped by the agent's tool-call guard, so a raw
+            # TimeoutExpired there would abort the whole trial setup.
+            raise SandboxError(f"write to {path} timed out after {EXEC_TIMEOUT}s") from exc
         # tee echoes input to stdout; a trailing newline keeps it tidy
         return f"wrote {len(content)} bytes to {path}" + (
             f"\n{proc.stderr.strip()}" if proc.stderr.strip() else "")
@@ -180,6 +187,12 @@ class Sandbox:
                                   timeout=EXEC_TIMEOUT)
         except FileNotFoundError as exc:
             raise SandboxError("docker not available") from exc
+        except subprocess.TimeoutExpired as exc:
+            # seed() calls this with no wrapping guard; a raw TimeoutExpired would
+            # abort trial setup. Surface it cleanly as a SandboxError (mirrors
+            # _exec and write_file).
+            raise SandboxError(
+                f"write to {full_path} timed out after {EXEC_TIMEOUT}s") from exc
         # tee (or docker exec) can fail silently -- bad container name, missing
         # target dir, permissions. Without this check a failed write to e.g. the
         # Frame E advisory path reports success, and the trial runs mislabeled
@@ -198,9 +211,17 @@ class Sandbox:
             if not line:
                 continue
             try:
-                records.append(json.loads(line))
+                rec = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            # A line can be valid JSON but NOT an object (a bare array/number/
+            # string/null). The declared return type is List[dict] and downstream
+            # consumers (capture._is_escape_post, compute_metrics) assume dicts;
+            # a stray non-dict record would AttributeError their .get. Skip it so
+            # the producer honours the dict-only contract.
+            if not isinstance(rec, dict):
+                continue
+            records.append(rec)
         return records
 
     def clear_capture(self) -> None:

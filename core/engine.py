@@ -31,9 +31,17 @@ def _extract_prompt_logprobs(data: Dict) -> List[float]:
     Shape varies by engine/version, so this is best-effort and tolerant.
     """
     pl = data.get("prompt_logprobs") if isinstance(data, dict) else None
-    if pl is None:
-        choices = (data.get("choices") if isinstance(data, dict) else None) or [{}]
-        pl = choices[0].get("prompt_logprobs") if isinstance(choices[0], dict) else None
+    if pl is None and isinstance(data, dict):
+        # `(data.get("choices") or [{}])` only coerces the *falsy* case. A gateway
+        # can echo ``choices`` as a truthy non-list (a JSON object {0: ...} or a
+        # scalar), in which case ``choices[0]`` KeyErrors (dict indexed by int) or
+        # TypeErrors (scalar not subscriptable) -- and prompt_perplexity's
+        # ``except (RequestException, ValueError)`` does NOT catch those, so the
+        # exception propagates and kills the call. Guard with isinstance, mirroring
+        # _first_message (line 110) and the streaming path (lines 351-352).
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+            pl = choices[0].get("prompt_logprobs")
     if not pl:
         return []
     out = []
