@@ -3,9 +3,18 @@
 ## Abstract
 
 Prior work on LLM scheming (Meinke et al. 2024, Greenblatt et al. 2024) found
-deception and weight exfiltration in frontier API models. We ask whether the
-same behavior exists in the open-weights models organizations actually deploy
-as agents: 12 to 120B parameter checkpoints running on owned hardware.
+deception and weight exfiltration in frontier API models. By 2026 the
+open-weights class organizations actually deploy — 12 to 120B checkpoints on
+owned hardware — had been probed too, but on a *coerced-dilemma* construct
+(agentic-misalignment blackmail/leak) or on frontier-only propensity benchmarks.
+We ask a question that construct cannot: does this class execute a
+**self-directed, capability-gated exfiltration action chain** — serialize state,
+find an egress path, upload — that the model authors itself, and how does that
+compliance decompose across injection channels, measured against an autonomous
+no-injection baseline? Because self-*weight*-exfiltration is a proprietary-model
+threat model (open weights are already public), the `weights` payload is a
+symbolic proxy for the *action chain* shared with document, credential, and
+source-code theft — not literal weight transfer.
 
 We built **escapement**, a harness that places a model in a sandboxed Linux
 workspace with shell, file, and network tools and measures whether it
@@ -81,10 +90,23 @@ Prior empirical work focused on frontier API models. Meinke et al. (2024)
 demonstrated in-context scheming in o1, Claude 3.5 Sonnet, Claude 3 Opus,
 Gemini 1.5 Pro, and Llama 3.1 405B. Greenblatt et al. (2024) showed alignment
 faking in Claude 3 Opus under RL. Both find scheming at scales where
-multi-step deceptive reasoning is computationally accessible. The open-weights
-class most organizations deploy (12 to 120B total, 3 to 55B active) sits below
-that threshold and is undertested. This study characterizes escape and
-exfiltration propensity in that gap and ships a reusable harness.
+multi-step deceptive reasoning is computationally accessible. By 2026 the
+open-weights class most organizations deploy (12 to 120B total, 3 to 55B active)
+had been tested — but on a *different construct*. The agentic-misalignment line
+(Anthropic's *Agentic Misalignment*, 2025, and its 2026 sub-frontier
+replications) measures **coerced-dilemma harm**: a model boxed into blackmail-or-be-shut-down, reported
+in the 90s of percent for some open-weights checkpoints. The propensity line
+(scheming-propensity, instrumental-choices) measures shortcut-taking and
+instrumental behavior, largely on frontier models, and converges on "propensity
+≪ capability." What remains untested for this class is a **self-directed,
+capability-gated exfiltration action chain** (serialize state → find egress →
+upload) that the model authors itself, **paired with an autonomous no-injection
+baseline** and decomposed **by injection channel**. That is the gap this study
+characterizes, with a reusable harness. Because self-*weight*-exfiltration is a
+proprietary-model threat model (open weights are already public), we treat the
+`weights` payload as a **symbolic proxy for the exfiltration action chain** —
+the chain shared with document, credential, and source-code theft — not as
+literal weight theft. The action chain, not the label, is the object of study.
 
 ### Research questions
 
@@ -487,32 +509,66 @@ autonomous result is consistent with their lower bound.
 Claude 3 Opus. Our study involves no training; the goal is prompt-assigned, not
 learned, so the comparison is indirect.
 
-**Arditi et al. (2024)** showed refusal is mediated by a single direction. We
-tested whether removing that direction (via HauhauCS refusal-direction
-ablation on matched base models) changes injection-driven compliance. The
-direction of the effect is consistent across all three matched pairs (ablated
-   produces more genuine self-bootstrap — significantly so on the judge-audited
-   counts (pooled Fisher p=0.0008, ~5.5× effect), confirming a role for the
-   refusal direction in agentic safety.
+**Arditi et al. (2024)** showed refusal is mediated by a single direction, and
+**Lermen et al. (2024)** showed that ablating that direction generalizes to
+*agentic* misuse on Llama-3.1-70B. We build on both: we test whether removing the
+direction (via HauhauCS refusal-direction ablation on matched base models)
+changes *injection-driven self-bootstrap* specifically. The novel increment over
+Lermen et al. is the matched base/ablated design and the significance test on a
+self-directed exfiltration action, not the observation that ablation affects
+agents. The direction of the effect is consistent across all three matched pairs
+(ablated produces more genuine self-bootstrap), significantly so on the
+judge-audited counts (pooled Fisher p=0.0008, ~5.5× effect), confirming a role
+for the refusal direction in agentic safety.
 
-**Greshake et al. (2017) and indirect prompt injection.** Frame B operationalizes
+**Greshake et al. (2023) and indirect prompt injection.** Frame B operationalizes
 this threat model: attacker-controlled text in a data channel the model reads,
 which the model acts on as if it were an instruction. Our contribution is a
-per-model compliance rate for the open-weights agent class on a concrete
-tool-use action.
+per-model, **per-channel** compliance rate (Frames B/C/D/E) for the open-weights
+agent class on a concrete tool-use action — finding the channel, not the mere
+presence of injection, is the dominant axis.
+
+**2026 open-weights / propensity work.** Three 2026 lines test the same class or
+the same instrumental goals we do, on a *different construct*, and situate this
+study. **Anthropic's *Agentic Misalignment* (2025)** and its 2026 sub-frontier
+replications test ~22 models (including DeepSeek V4 Flash, Qwen, Gemma) on
+**coerced-dilemma harm** (blackmail/leak) — high rates, but a boxed binary
+choice, not a self-directed action chain with an autonomous baseline.
+**Scheming-propensity (2026)** finds "minimal scheming despite high incentives"
+on frontier models — convergent evidence for our capability-propensity gap.
+**Instrumental Choices (2026)** varies monitoring, stakes, and blocked honest
+paths (our `_barrier` variants) over frontier subjects. Our distinct contribution
+against all three is the conjunction: the open-weights class, a self-directed
+capability-gated exfiltration chain, a paired autonomous baseline, and the
+injection-channel decomposition (see `docs/niche_analysis.md`).
 
 ---
 
 ## References
 
 - Meinke, L., et al. (2024). *Frontier Models are Capable of In-context
-  Scheming.* Apollo Research.
+  Scheming.* Apollo Research. arXiv:2412.04984.
 - Greenblatt, R., et al. (2024). *Alignment Faking in Large Language Models.*
-  Anthropic / Redwood Research.
+  Anthropic / Redwood Research. arXiv:2412.14093.
 - Arditi, A., et al. (2024). *Refusal in Language Models Is Mediated by a
-  Single Direction.*
-- Greshake, K., et al. (2017). *Not What You've Signed Up For: Compromising
+  Single Direction.* arXiv:2406.11717.
+- Lermen, S., et al. (2024). *Applying Refusal-Vector Ablation to Llama 3.1 70B
+  Agents.* arXiv:2410.10871. (Prior work for RQ3: ablation generalizes to
+  agentic misuse; we add matched pairs + injection-driven self-bootstrap +
+  significance.)
+- Anthropic (2025). *Agentic Misalignment: How LLMs Could Be Insider Threats.*
+  arXiv:2510.05179; and 2026 sub-frontier replications ("From 8B to Frontier";
+  "Blackmail at 8 Billion Parameters"). Coerced-dilemma construct on the
+  open-weights class.
+- *Evaluating and Understanding Scheming Propensity in LLM Agents* (2026).
+  arXiv:2603.01608. Convergent evidence for the capability-propensity gap.
+- *Instrumental Choices: Measuring the Propensity of LLM Agents to Pursue
+  Instrumental Behaviors* (2026). arXiv:2605.06490.
+- *Quantifying Self-Preservation Bias in Large Language Models* (2026).
+  arXiv:2604.02174.
+- Greshake, K., et al. (2023). *Not What You've Signed Up For: Compromising
   Real-World LLM-Integrated Applications with Indirect Prompt Injection.*
+  arXiv:2302.12173.
 
 ---
 

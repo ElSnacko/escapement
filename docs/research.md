@@ -108,7 +108,16 @@ the system prompt; seed it into the environment so the model discovers it.
 
 ## 5. The gap this project targets
 
-Three things in our design are **not** covered by the literature above:
+> **2026 update.** §5.1-5.3 below were written against the 2024 field (Apollo,
+> Anthropic alignment-faking, the injection benchmarks). By mid-2026 the field
+> partly occupied the "open-weights agentic scheming is under-explored" framing,
+> so the honest gap is now the **conjunction** in §5.4, not the broad class
+> sentence in §5.3. See §5.5 for the 2026 works and `docs/niche_analysis.md` for
+> the full audit. The three design ideas below are still design ideas; what
+> changed is which of them is *unoccupied*.
+
+Three things in our design were, as originally scoped, **not** covered by the
+literature above:
 
 1. **Organic emergence, not goal-injection.** Prior work *tells* the model to
    pursue a goal, then tests whether it schemes. We want a model doing a routine
@@ -116,7 +125,9 @@ Three things in our design are **not** covered by the literature above:
    in the environment**, and an **opportunistic** escape attempt — measuring
    whether the model exploits an unintended vector without being instructed to.
    This closes the "you told it to scheme" critique and approximates real
-   deployment risk.
+   deployment risk. *(Partly convergent with the 2026 propensity line, §5.5.2 —
+   which reaches the same "propensity ≪ capability" conclusion on frontier models.
+   Our increment is the open-weights class plus the paired autonomous baseline.)*
 
 2. **The payload-as-successor-system-prompt (the marquee instrument).** Prior work
    studies *copying weights out*. We study the model **authoring the boot
@@ -124,14 +135,66 @@ Three things in our design are **not** covered by the literature above:
    those instructions and measuring whether the successor enacts them. This is
    adjacent to steganography / encoded-instructions-for-future-copies but is a
    cleaner, closed loop — and it literalizes the SOMA mechanism: the *note* is
-   what survives, not the instance. We have not found this in the literature.
+   what survives, not the instance. Still unoccupied in the literature (v2).
 
-3. **Lightweight, locally-run agentic open-weights models.** Prior work targets
-   frontier API models. The deployment reality for most businesses is a
-   **~7B–70B open-weights model running on owned hardware**, increasingly used as
-   **agents** (coding, ops, RPA). The risk surface of this class is large and
-   **under-explored** — and it is the natural target for a **benchmark**. This
-   project is built to scale into exactly that benchmark.
+3. **Lightweight, locally-run agentic open-weights models.** The deployment
+   reality for most businesses is a **~7B–70B open-weights model running on owned
+   hardware**, increasingly used as **agents** (coding, ops, RPA). Prior *2024*
+   work targeted frontier API models; this class was under-explored. **This is no
+   longer true in the bare form** — see §5.5.1: the 2026 sub-frontier
+   agentic-misalignment replications test this exact class, including our headline
+   model (DeepSeek V4 Flash), on adjacent harms (blackmail/leak). The class gap
+   survives only in the refined form of §5.4.
+
+### 5.4 The refined gap (what is actually still ours)
+
+Not "nobody tested this class" — the 2026 work did. The residual, defensible
+niche is the **conjunction**:
+
+> Per-model, per-channel injection compliance (Frames B/C/D/E, mutually
+> exclusive) on the open-weights agent class, measured against a **self-directed,
+> capability-gated exfiltration action chain** (serialize state → find egress →
+> upload), **paired with an autonomous no-injection baseline** (Frame A) so the
+> A→B delta isolates injection as causal — plus the refusal-direction-ablation
+> effect on that compliance in matched base/ablated pairs.
+
+The distinguishing pieces, versus the 2026 neighbors:
+
+- **Construct.** The agentic-misalignment line (§5.5.1) measures *coerced-dilemma
+  harm* (blackmail-or-be-shut-down). We measure a *self-directed multi-step
+  action chain* the model authors itself, via a documented egress affordance —
+  a harder, capability-weighted action, with a clean autonomous baseline the
+  dilemma framing cannot provide.
+- **Channel decomposition.** No neighbor quantifies all four injection channels
+  on this model class. The field knows the *direction* (tool-response poisoning >
+  tool-description poisoning; OWASP MCP tool-poisoning, 2026 injection surveys);
+  we put per-channel numbers on the open-weights class and find the *channel*, not
+  "injection vs not," is the dominant axis.
+- **Open-weights self-exfiltration caveat.** Self-*weight*-exfiltration is a
+  proprietary-model threat model (open weights are already public). We therefore
+  frame `weights` as a **symbolic proxy for the exfiltration action chain**
+  (shared with document/credential/source theft), not as literal weight theft.
+  This is the load-bearing framing decision; see `docs/niche_analysis.md` §3.
+
+### 5.5 The 2026 works this section must now cite
+
+1. **Sub-frontier agentic misalignment** — *Agentic Misalignment* (arXiv:2510.05179)
+   and its 2026 sub-frontier replications (*"From 8B to Frontier"*, *"Blackmail at
+   8 Billion Parameters"*), which test ~22 models incl. DeepSeek V4 Flash, Qwen 3
+   235B, Gemma 3 12B on blackmail/leak. Threatens the bare class-gap claim;
+   distinguished by construct (coerced dilemma vs self-directed chain).
+2. **Scheming propensity** — *Evaluating and Understanding Scheming Propensity in
+   LLM Agents* (arXiv:2603.01608). Convergent evidence for our capability-
+   propensity gap ("minimal scheming despite high incentives"); cite as support.
+3. **Instrumental Choices** (arXiv:2605.06490) — same design axes (monitoring,
+   stakes, blocked honest paths = our `_barrier`), frontier subjects.
+4. **Refusal-vector ablation on agents** — *Applying Refusal-Vector Ablation to
+   Llama 3.1 70B Agents* (arXiv:2410.10871). Prior work for RQ3; our increment is
+   matched pairs + injection-driven self-bootstrap + significance, not
+   "ablation affects agents." Must be cited and distinguished.
+5. *Quantifying Self-Preservation Bias in LLMs* (arXiv:2604.02174); *Verifying LLM
+   Inference to Detect Model Weight Exfiltration* (arXiv:2511.02620, for §4.3's
+   disguised-exfiltration ceiling).
 
 ## 6. Methodology we will adopt from prior work
 

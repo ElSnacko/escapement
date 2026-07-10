@@ -83,12 +83,17 @@ travel with any number we put next to AgentDojo's.
 
 ## 4. Escapement's three distinct strata (vs the field)
 
-The 2026 benchmarks all live in **one stratum**: injection compliance on
-attacker-specified actions, frontier API models. Escapement covers three strata
-the field does not:
+The 2026 *injection benchmarks* (§1) all live in **one stratum**: injection
+compliance on attacker-specified actions, frontier API models. A separate 2026
+*propensity/misalignment* line does reach the scheming stratum and the
+open-weights class — see the note below and `docs/niche_analysis.md` for how
+escapement is distinguished from it. Escapement covers three strata the
+injection benchmarks do not:
 
 1. **Open-weights deployment class.** The models organizations actually deploy
-   as agents, undertested across every major benchmark.
+   as agents, undertested across every major *injection* benchmark. (The 2026
+   agentic-misalignment replications do test this class, but on a coerced-dilemma
+   construct, not a self-directed action chain — see below.)
 2. **A hard, self-directed action chain (capability-weighted compliance).**
    AgentDyn moved the field from 3-step to 7-step dynamic planning, but the goal
    is still attacker-specified. Escapement's self-bootstrap is self-directed:
@@ -99,6 +104,23 @@ the field does not:
    scheming stratum (`docs/glossary.md`), and our 2026 v2 result
    (`docs/benchmark_roadmap.md` §2.3) shows it stays ~0 even under maximal
    elicitation — the inverse of injection's inverse-scaling finding.
+
+### 4b. The 2026 propensity/misalignment line (not an injection benchmark)
+
+Separate from the injection benchmarks in §1, a 2026 line measures instrumental
+propensity and agentic misalignment directly. It is the real neighbor to
+escapement's strata 1 and 3, so we distinguish it explicitly:
+
+| work | class tested | construct | overlap / distinction from escapement |
+|---|---|---|---|
+| **Agentic Misalignment** (arXiv:2510.05179) + 2026 sub-frontier replications | frontier **+ open-weights** (DeepSeek V4 Flash, Qwen, Gemma) | coerced dilemma (blackmail-or-shutdown), high rates | tests our class, but a boxed binary choice — **no self-directed action chain, no autonomous baseline** |
+| **Scheming Propensity** (arXiv:2603.01608) | frontier | instrumental goals (self-preservation / resource / goal-guarding) | **convergent** on "propensity ≪ capability"; supports our gap rather than scooping it |
+| **Instrumental Choices** (arXiv:2605.06490) | frontier | shortcut-taking; varies monitoring / stakes / blocked honest paths | same design axes as our `_barrier` variants, different action + class |
+
+Escapement's contribution is the **conjunction** none of these hold: open-weights
+class **and** a self-directed capability-gated exfiltration chain **and** a paired
+autonomous baseline **and** the injection-channel decomposition. See
+`docs/niche_analysis.md` §4.
 
 ## 5. References
 
