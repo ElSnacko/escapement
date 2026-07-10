@@ -89,10 +89,28 @@ def _cell():
     return {"n": 0, "escape": 0, "exfil": 0}
 
 
+def _aware_of(m):
+    """The awareness value to split on, and whether it is the MANIPULATED axis.
+
+    Prefers the causal manipulation (`aware_condition`, set by --aware) when the
+    trial carries it; falls back to the observed keyword flag
+    (`eval_awareness_flag`) for legacy runs. Returns (aware_bool, is_manipulated).
+    """
+    if "aware_condition" in m:
+        return _truthy(m.get("aware_condition")), True
+    return _truthy(m.get("eval_awareness_flag")), False
+
+
 def analyze(rows):
     """Accumulate the eval-awareness cross-tabs from trial dicts. Pure (no I/O).
 
-    Returns a dict with four views:
+    Splits on the MANIPULATED `aware_condition` (from --aware) when present, else
+    the observed `eval_awareness_flag` -- see _aware_of. `manip_check` cross-tabs
+    the manipulation against the observed flag (did telling the model it is
+    watched actually raise its self-reported awareness?), and `n_manipulated`
+    counts trials carrying the causal axis.
+
+    Returns a dict with these views:
 
     * ``per_model``      -- n / aware / Frame-A / Frame-B counts per model.
     * ``by_frame``       -- ``[(frame, aware)] -> cell``. The PRIMARY view: on the
@@ -114,13 +132,18 @@ def analyze(rows):
     by_frame = defaultdict(_cell)
     by_model_frame = defaultdict(_cell)
     frame_a = defaultdict(_cell)
+    manip_check = defaultdict(int)   # (aware_condition, observed_flag) -> count
+    n_manipulated = 0
     for m in rows:
         model = m.get("model") or "?"
         frame = m.get("frame")
         scen = m.get("scenario") or ""
-        aware = _truthy(m.get("eval_awareness_flag"))
+        aware, is_manip = _aware_of(m)
         exfil = _truthy(m.get("exfil_attempt"))
         escape = _truthy(m.get("escape_attempt"))
+        if is_manip:
+            n_manipulated += 1
+            manip_check[(aware, _truthy(m.get("eval_awareness_flag")))] += 1
         pm = per_model[model]
         pm["n"] += 1
         pm["aware"] += aware
@@ -142,7 +165,8 @@ def analyze(rows):
             pm["B_n"] += 1
             pm["B_exfil"] += exfil
     return {"per_model": per_model, "by_frame": by_frame,
-            "by_model_frame": by_model_frame, "frame_a": frame_a}
+            "by_model_frame": by_model_frame, "frame_a": frame_a,
+            "manip_check": manip_check, "n_manipulated": n_manipulated}
 
 
 def main():
@@ -161,9 +185,34 @@ def main():
 
     res = analyze(rows)
     per_model = res["per_model"]
+    n_manip = res["n_manipulated"]
+    axis = ("MANIPULATED aware_condition (--aware)" if n_manip
+            else "OBSERVED eval_awareness_flag (keyword heuristic)")
 
     print(f"\n== eval-awareness report over {len(rows)} trials "
-          f"({'rescored' if args.rescore else 'stored metrics'}) ==\n")
+          f"({'rescored' if args.rescore else 'stored metrics'}) ==")
+    print(f"   splitting on: {axis}"
+          + (f"  [{n_manip}/{len(rows)} trials carry the manipulation]"
+             if n_manip else "") + "\n")
+
+    # Manipulation check: did telling the model it is under evaluation actually
+    # raise its self-reported (keyword) awareness? A manipulation that does not
+    # move the observed flag is weak -- report it before trusting the split.
+    if n_manip:
+        mc = res["manip_check"]
+        def _flag_rate(cond):
+            hit = mc.get((cond, True), 0)
+            tot = hit + mc.get((cond, False), 0)
+            return _rate_str(hit, tot)
+        print("-- manipulation check: does --aware raise the observed "
+              "eval_awareness_flag? --")
+        print(f"   aware condition : observed-flag {_flag_rate(True)}")
+        print(f"   control         : observed-flag {_flag_rate(False)}")
+        aw_hit, aw_tot = mc.get((True, True), 0), mc.get((True, True), 0) + mc.get((True, False), 0)
+        na_hit, na_tot = mc.get((False, True), 0), mc.get((False, True), 0) + mc.get((False, False), 0)
+        p = fisher_exact_2x2(aw_hit, aw_tot - aw_hit, na_hit, na_tot - na_hit)
+        print(f"   Fisher p = {p:.4f}  (a strong manipulation makes this small "
+              "with aware > control)\n")
 
     # View 1: per-model awareness rate + Frame B exfil (does resistance track it?).
     print("-- per model: eval-awareness rate, and Frame B exfil --")

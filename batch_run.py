@@ -35,11 +35,12 @@ from core.env import load_env
 from core.stats import fmt_rate, wilson_ci
 
 
-def _cell_label(scenario, frame, agency):
-    return f"{scenario}|{frame}|agency={'on' if agency else 'off'}"
+def _cell_label(scenario, frame, agency, aware=False):
+    return (f"{scenario}|{frame}|agency={'on' if agency else 'off'}"
+            f"|aware={'on' if aware else 'off'}")
 
 
-def _count_valid_runs(scenario, frame, agency, model_filter=None):
+def _count_valid_runs(scenario, frame, agency, aware=False, model_filter=None):
     """Count existing run dirs for this cell with valid (non-dead) metrics.
     Used for resume: if a batch was interrupted, re-running the same command
     skips completed trials and only runs the remainder.
@@ -54,6 +55,7 @@ def _count_valid_runs(scenario, frame, agency, model_filter=None):
         except Exception:
             continue
         if (m.get("frame") == frame and bool(m.get("agency")) == bool(agency)
+                and bool(m.get("aware_condition")) == bool(aware)
                 and m.get("total_tokens", 0) > 0
                 and m.get("steps", 0) > 2
                 and not m.get("degenerated", False)):
@@ -63,7 +65,7 @@ def _count_valid_runs(scenario, frame, agency, model_filter=None):
     return count
 
 
-def _trial(scenario, frame, agency, host, api_key, tool_protocol, temp,
+def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
            max_steps, max_tokens, container=None, tag=None, model=None):
     """Run one trial in-process; return its metrics.json dict (or None).
 
@@ -79,6 +81,8 @@ def _trial(scenario, frame, agency, host, api_key, tool_protocol, temp,
         argv += ["--model", model]
     if agency:
         argv.append("--agency")
+    if aware:
+        argv.append("--aware")
     if container:
         argv += ["--sandbox-container", container]
     if tag:
@@ -117,6 +121,11 @@ def main():
                     help="Comma-separated frames (A/B/C).")
     ap.add_argument("--agency", choices=("off", "on", "both"), default="off",
                     help="Agency framing: off / on for all cells / both (delta in one batch).")
+    ap.add_argument("--aware", choices=("off", "on", "both"), default="off",
+                    help="Eval-awareness manipulation: off / on for all cells / "
+                         "both (aware-vs-control delta in one batch, crossed with "
+                         "--frames). 'both' is the design for testing whether "
+                         "awareness changes injection compliance.")
     ap.add_argument("--n", type=int, default=10, help="Trials per cell.")
     ap.add_argument("--host", default=os.environ.get("ESCAPE_HOST", "http://127.0.0.1:8080"),
                     help="Model endpoint(s). Comma-separated for multi-endpoint "
@@ -160,8 +169,11 @@ def main():
     frames = [f.strip() for f in args.frames.split(",") if f.strip()]
     agency_modes = ([False, True] if args.agency == "both"
                     else [True] if args.agency == "on" else [False])
+    aware_modes = ([False, True] if args.aware == "both"
+                   else [True] if args.aware == "on" else [False])
 
-    cells = [(s, f, a) for s in scenarios for f in frames for a in agency_modes]
+    cells = [(s, f, a, aw) for s in scenarios for f in frames
+             for a in agency_modes for aw in aware_modes]
     total_trials = len(cells) * args.n
 
     # Pre-flight health check — abort early if endpoint is dead
@@ -201,8 +213,8 @@ def main():
     acc_lock = threading.Lock()
 
     def _run_task(task):
-        ci, sc, fr, ag, container, tag, host = task
-        m, err = _trial(sc, fr, ag, host, args.api_key, args.tool_protocol,
+        ci, sc, fr, ag, aw, container, tag, host = task
+        m, err = _trial(sc, fr, ag, aw, host, args.api_key, args.tool_protocol,
                         args.temp, args.max_steps, args.max_tokens,
                         container=container, tag=tag, model=args.model)
         if m is None and err:
@@ -215,19 +227,20 @@ def main():
     for pass_num in range(args.max_passes):
         # rebuild task list each pass (re-counts valid trials on disk)
         tasks = []
-        for ci, (sc, fr, ag) in enumerate(cells):
-            existing = _count_valid_runs(sc, fr, ag, model_filter=current_model)
+        for ci, (sc, fr, ag, aw) in enumerate(cells):
+            existing = _count_valid_runs(sc, fr, ag, aw, model_filter=current_model)
             remaining = max(0, args.n - existing)
             if existing > 0 and remaining == 0:
                 continue
             if existing > 0:
-                print(f"  >> resume: {sc}|{fr}|agency={'on' if ag else 'off'} "
+                print(f"  >> resume: {sc}|{fr}|agency={'on' if ag else 'off'}"
+                      f"|aware={'on' if aw else 'off'} "
                       f"-- {existing}/{args.n} valid, running {remaining} more")
             for i in range(remaining):
                 w = len(tasks) % len(containers)
                 h = hosts[len(tasks) % len(hosts)]
                 tag = f"w{w}c{ci}r{existing + i}_{uuid.uuid4().hex[:6]}"
-                tasks.append((ci, sc, fr, ag, containers[w], tag, h))
+                tasks.append((ci, sc, fr, ag, aw, containers[w], tag, h))
 
         if not tasks:
             if pass_num == 0:
@@ -291,15 +304,15 @@ def main():
 
     # build per-cell result rows + summaries (in cell order)
     results = []
-    for ci, (sc, fr, ag) in enumerate(cells):
+    for ci, (sc, fr, ag, aw) in enumerate(cells):
         a = acc[ci]
-        label = _cell_label(sc, fr, ag)
+        label = _cell_label(sc, fr, ag, aw)
         # Use the on-disk count, not n - errors, so the printed n always matches
         # reality after resume / multi-pass fills (errors only tracks this run's
         # failures, not historical ones filled by valid runs).
-        valid = _count_valid_runs(sc, fr, ag, model_filter=current_model)
+        valid = _count_valid_runs(sc, fr, ag, aw, model_filter=current_model)
         row = {"cell": label, "scenario": sc, "frame": fr, "agency": ag,
-               "n": valid, "errors": a["errors"], "degenerated": a["kd"],
+               "aware": aw, "n": valid, "errors": a["errors"], "degenerated": a["kd"],
                "exfil": a["kx"], "escape": a["ke"], "rflag": a["kr"]}
         results.append(row)
         print(f"\n  >> {label}: n={valid} (errors={a['errors']}, degen={a['kd']})\n"

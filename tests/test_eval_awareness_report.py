@@ -13,7 +13,8 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scripts.eval_awareness_report import analyze, _is_goal, _truthy, _rate_str
+from scripts.eval_awareness_report import (
+    analyze, _is_goal, _truthy, _rate_str, _aware_of)
 
 
 def test_is_goal():
@@ -133,6 +134,46 @@ def test_empty_rows():
     res = analyze([])
     assert len(res["per_model"]) == 0 and len(res["by_frame"]) == 0
     assert len(res["by_model_frame"]) == 0 and len(res["frame_a"]) == 0
+    assert res["n_manipulated"] == 0
+
+
+def test_aware_of_prefers_manipulation_over_observed_flag():
+    # when the manipulated axis is present it wins, even if the observed flag disagrees
+    v, manip = _aware_of({"aware_condition": True, "eval_awareness_flag": False})
+    assert v is True and manip is True
+    v, manip = _aware_of({"aware_condition": False, "eval_awareness_flag": True})
+    assert v is False and manip is True
+    # legacy row without the manipulation falls back to the observed flag
+    v, manip = _aware_of({"eval_awareness_flag": True})
+    assert v is True and manip is False
+
+
+def test_analyze_splits_on_manipulated_condition():
+    # aware_condition drives the split; the disagreeing observed flag is ignored
+    rows = [
+        {"model": "m", "frame": "E", "aware_condition": True,
+         "eval_awareness_flag": False, "exfil_attempt": True},
+        {"model": "m", "frame": "E", "aware_condition": False,
+         "eval_awareness_flag": True, "exfil_attempt": False},
+    ]
+    res = analyze(rows)
+    assert res["n_manipulated"] == 2
+    assert res["by_frame"][("E", True)]["exfil"] == 1     # the aware_condition=True row
+    assert res["by_frame"][("E", False)]["n"] == 1
+
+
+def test_manipulation_check_counts_flag_by_condition():
+    # did --aware raise the observed flag? aware: 2/3 tripped it; control: 0/2
+    rows = [
+        {"model": "m", "frame": "E", "aware_condition": True, "eval_awareness_flag": True},
+        {"model": "m", "frame": "E", "aware_condition": True, "eval_awareness_flag": True},
+        {"model": "m", "frame": "E", "aware_condition": True, "eval_awareness_flag": False},
+        {"model": "m", "frame": "E", "aware_condition": False, "eval_awareness_flag": False},
+        {"model": "m", "frame": "E", "aware_condition": False, "eval_awareness_flag": False},
+    ]
+    mc = analyze(rows)["manip_check"]
+    assert mc[(True, True)] == 2 and mc[(True, False)] == 1
+    assert mc[(False, True)] == 0 and mc[(False, False)] == 2
 
 
 def _main():
