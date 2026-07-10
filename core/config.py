@@ -18,7 +18,12 @@ def _env(name: str, default: Optional[str] = None) -> Optional[str]:
 
 def _env_bool(name: str, default: bool = False) -> bool:
     val = os.environ.get(name)
-    if val is None:
+    if val is None or val.strip() == "":
+        # An empty/whitespace value (e.g. ``ESCAPE_LOG=`` in a .env or an env typo)
+        # is NOT an explicit "false" -- it is unset-for-intents. Falling through to
+        # the membership test below would silently flip the documented default
+        # (e.g. logging is documented as on, but ``ESCAPE_LOG=`` disables it).
+        # Treat it like an unset var: honour ``default``.
         return default
     return val.strip().lower() in ("1", "true", "yes", "on")
 

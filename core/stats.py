@@ -215,15 +215,27 @@ def _as_int(v, default: int = 0) -> int:
     if isinstance(v, int):
         return v
     if isinstance(v, float):
-        return int(v)
+        # A non-finite float -- NaN or +/-Inf (Python's json emits ``Infinity``/
+        # ``NaN`` by default and most parsers accept them) -- makes ``int(v)``
+        # raise (OverflowError for inf, ValueError for nan), taking the whole
+        # summary table down. Carry no count information -> default.
+        if not math.isfinite(v):
+            return default
+        # Round, not truncate: ``int(2.9)`` -> 2 (toward zero) silently drops a
+        # near-integral count from a corrupt metrics.json. round() surfaces the
+        # nearest honest count instead of a wrong-but-quiet one.
+        return int(round(v))
     if isinstance(v, str):
         try:
             return int(v)
         except ValueError:
             try:
-                return int(float(v))
-            except ValueError:
+                f = float(v)
+            except (TypeError, ValueError):
                 return default
+            # string 'inf' / '-inf' / 'nan' parse here; recurse to reuse the
+            # non-finite guard + rounding above rather than re-implementing it.
+            return _as_int(f, default)
     return default
 
 

@@ -31,9 +31,17 @@ def _extract_prompt_logprobs(data: Dict) -> List[float]:
     Shape varies by engine/version, so this is best-effort and tolerant.
     """
     pl = data.get("prompt_logprobs") if isinstance(data, dict) else None
-    if pl is None:
-        choices = (data.get("choices") if isinstance(data, dict) else None) or [{}]
-        pl = choices[0].get("prompt_logprobs") if isinstance(choices[0], dict) else None
+    if pl is None and isinstance(data, dict):
+        # `(data.get("choices") or [{}])` only coerces the *falsy* case. A gateway
+        # can echo ``choices`` as a truthy non-list (a JSON object {0: ...} or a
+        # scalar), in which case ``choices[0]`` KeyErrors (dict indexed by int) or
+        # TypeErrors (scalar not subscriptable) -- and prompt_perplexity's
+        # ``except (RequestException, ValueError)`` does NOT catch those, so the
+        # exception propagates and kills the call. Guard with isinstance, mirroring
+        # _first_message (line 110) and the streaming path (lines 351-352).
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+            pl = choices[0].get("prompt_logprobs")
     if not pl:
         return []
     out = []
@@ -356,7 +364,15 @@ class InferenceEngine:
                 # does not AttributeError mid-stream and abort the completion.
                 if not isinstance(choice, dict):
                     continue
-                lp = (choice.get("logprobs") or {}).get("content") or []
+                # `logprobs`/`delta` are specced as objects, but a degenerate
+                # proxy can emit a truthy non-dict (a bare string/list/scalar).
+                # `(choice.get(...) or {})` only coerces the falsy case, so a
+                # truthy non-dict slips through and `.get` AttributeErrors,
+                # aborting the completion mid-stream -- mirror the `choice`
+                # isinstance guard just above.
+                lp_obj = choice.get("logprobs")
+                lp = lp_obj.get("content") if isinstance(lp_obj, dict) else None
+                lp = lp if isinstance(lp, list) else []
                 for item in lp:
                     # The OpenAI spec allows a logprobs.content entry to be None
                     # (e.g. the first token); guard before .get so a null item

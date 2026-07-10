@@ -362,7 +362,14 @@ class Agent:
                                             "chars": len(reasoning),
                                             "text": reasoning[:1000]})
             calls = msg.get("tool_calls") or []
+            # `content` is specced as a string, but a gateway can echo a truthy
+            # non-string (an int/list/dict on a degenerate completion). The
+            # `'"tool"' in content` / `_looks_degenerated` / f-string paths below
+            # all assume str -- a non-string TypeErrors there and kills the trial.
+            # Coerce to str (None/empty -> ''), mirroring chat_react's content guard.
             content = msg.get("content") or ""
+            if not isinstance(content, str):
+                content = str(content) if content is not None else ""
             # Append the assistant turn before tool results. Native: the verbatim
             # message (with tool_calls). ReAct: the raw text the model emitted.
             if self.tool_protocol == "react":
