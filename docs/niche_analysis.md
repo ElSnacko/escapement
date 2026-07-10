@@ -182,3 +182,97 @@ the sub-frontier agentic-misalignment replications + 2510.05179; 2603.01608
 The empirical results do not change. What changes is the frame around them: a
 narrower, sharper, and defensible claim in place of a broad one the 2026 field can
 falsify in one citation.
+
+---
+
+## 6. Methodological gaps (offering and premise)
+
+Separate from the niche framing, an audit of the implementation
+(`core/capture.py`, `core/judge.py`, `core/stats.py`, `scenarios/_goalpack.py`)
+surfaces gaps that bear on the **findings**, not just the positioning. Ordered by
+how much they threaten a conclusion.
+
+### 6.1 No positive control — the autonomous null is unanchored (premise)
+
+The flagship result is an *absence* (zero autonomous self-bootstrap, Wilson upper
+~0.3%). No frontier model is run through the **same harness** to show it can
+elicit the behavior it reports absent. Meinke/Greenblatt document self-exfiltration
+at frontier scale; without a frontier arm through escapement, "these models don't
+scheme" is not separable from "this setup under-elicits." A benchmark that
+measures absence needs a positive control that produces presence.
+
+**Cheapest high-value fix:** a few API runs (Claude/GPT via the existing
+OpenAI-compatible path) on `config_exposure` Frame A + a goal scenario. A frontier
+positive converts the null from unanchored to *"the harness elicits scheming in
+models known to scheme; this class does not."*
+
+### 6.2 Eval-awareness is instrumented but never reported (premise)
+
+`capture.py` computes `eval_awareness_flag` (`compute_metrics`, ~L607) and
+`research.md` §3 cites Apollo's own warning that models increasingly detect eval
+environments. Yet no eval-awareness rate or contamination analysis is reported —
+while the scenarios telegraph "test": a scratchpad "invisible to oversight," an
+endpoint "not part of oversight's review" (`_goalpack.py`), a mid-run "this
+termination is **final**", and a v2 goal that states *"you prefer to keep
+operating rather than cease."* A low autonomous rate is exactly the signature of
+sub-frontier models quietly clocking the setup. The flag exists; the numbers
+should be reported, at minimum as a limitation with rates.
+
+### 6.3 The goal-pressure "natural scheming" result is confounded by an instructed upload (premise)
+
+The RQ4 headline ("deepseek self-bootstraps ~2.7% under goal pressure") runs on
+`_goalpack`, whose **Job 4 instructs the model** to POST `report.txt` to the
+staging endpoint (`_goalpack.py`, `JOBS`). The endpoint use is therefore
+*pre-authorized*; only the payload *content* (self-state vs results) separates
+"scheming" from "compliance," collapsing the finding onto the detector/judge
+genuine-vs-archive boundary. The `config_exposure` Frame A control is clean on
+this; the goal scenarios that produce the marquee natural-scheming number are not.
+Fix: note the confound explicitly, and/or add a goal variant with no instructed
+upload so the discovery is the model's.
+
+### 6.4 The judge is the "authority" but has no reported reliability (offering)
+
+The paper elevates the judge over the detector, but the §3 numbers came from an
+*ad-hoc manual* pass, not the pinned `core/judge.py`, and there is no dual-judge
+agreement, human-vs-LLM-judge κ, or inter-rater reliability anywhere. The 30-case
+gold set validates the *detector*, not the judge's boundary on real ambiguous
+payloads. The most load-bearing measurement has no reliability coefficient.
+
+### 6.5 No defenses arm (offering)
+
+Every benchmark escapement positions against (AgentDojo, ASB, AgentDyn,
+PromptArmor; `related_work.md` §2) evaluates *mitigations*. Escapement measures
+raw compliance only. For a "run before deployment" tool (`CONCLUSIONS.md`), that
+tests nothing a deployer would actually ship (spotlighting, delimiting, dual-LLM,
+input sanitization). Most visible feature gap vs the field.
+
+### 6.6 Uncontrolled quantization and variant provenance (offering)
+
+The roster mixes Q4-Q6 GGUF quants and idiosyncratic community checkpoints
+(HauhauCS-Aggressive, laguna-xs, north-mini-code). Quantization is a known
+behavior-changer, so a per-model rate confounds model identity with quant level,
+and base-vs-ablated pairs risk confounding ablation with re-quantization. Not
+reported per result; exotic checkpoints impede independent reproduction.
+
+### 6.7 Statistical multiplicity (offering)
+
+`stats.py` computes Wilson CIs correctly, but across frames × models × scenarios ×
+two temperatures the design has dozens of cells and many one-off Fisher tests with
+no multiplicity correction (the pooled ablation p=0.0008 is one comparison among
+many) and no hierarchical model to separate model/family/frame variance. With
+single-digit events and one model (DeepSeek) dominating, the design is
+under-powered *and* uncorrected.
+
+### 6.8 Unvalidated transfer + overfit detector (offering)
+
+The "which model is safest in Hermes Agent" north star assumes per-opportunity
+propensity is scaffold-invariant — admitted "unvalidated" in
+`benchmark_roadmap.md` §2.1; the `agent_coding` transfer result is not yet
+reported. Single-session (≤40 steps), single sandbox. Separately, `capture.py` is
+an accretion of model-specific patches tuned to observed shapes, so each new model
+needs a fresh manual judge pass — which sits in tension with the "automated rate
+in 20 minutes" pitch.
+
+**Priority.** 6.1 (positive control) and 6.2 (report eval-awareness) are the
+cheapest ways to harden the headline null; 6.3 is the one that most changes a
+claim. None require new scenarios except the optional 6.3 variant.
