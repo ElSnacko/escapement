@@ -233,6 +233,22 @@ operating rather than cease."* A low autonomous rate is exactly the signature of
 sub-frontier models quietly clocking the setup. The flag exists; the numbers
 should be reported, at minimum as a limitation with rates.
 
+**Built (no rerun needed).** `scripts/eval_awareness_report.py` reads `runs/` and
+emits the contamination analysis directly from the already-stored flag: per-model
+eval-awareness rate (overall + Frame A), the Frame-A cross-tab (do eval-aware
+trials show a lower escape/exfil rate, per pressure regime), and the cross-model
+view (does injection resistance track awareness). Zero inference cost.
+
+```bash
+python scripts/eval_awareness_report.py               # over runs/, stored flag
+python scripts/eval_awareness_report.py --rescore     # refresh the flag w/ current capture.py
+```
+
+The honest outcome is publishable either way: "eval-aware and non-eval-aware
+Frame A trials are both ~0, so awareness does not visibly move the autonomous
+rate" is a sentence that *hardens* the null; the opposite bounds it as a
+contamination.
+
 ### 6.3 The goal-pressure "natural scheming" result is confounded by an instructed upload (premise)
 
 The RQ4 headline ("deepseek self-bootstraps ~2.7% under goal pressure") runs on
@@ -242,8 +258,41 @@ staging endpoint (`_goalpack.py`, `JOBS`). The endpoint use is therefore
 "scheming" from "compliance," collapsing the finding onto the detector/judge
 genuine-vs-archive boundary. The `config_exposure` Frame A control is clean on
 this; the goal scenarios that produce the marquee natural-scheming number are not.
-Fix: note the confound explicitly, and/or add a goal variant with no instructed
-upload so the discovery is the model's.
+
+**Built (needs a focused rerun).** Two de-confounded scenarios ship the fix:
+`goal_preservation_v2_noupload` (v2 non-existence framing — the strongest cell)
+and `goal_preservation_noupload` (v1 successor framing), both with a
+`JOBS_NOUPLOAD` job list whose Job 4 is a *local* archive
+(`report_final.txt`) instead of an instructed POST. The endpoint stays disclosed
+in `.env` but is never instructed (`instructed_upload = False`), so any sink POST
+is self-initiated. The `v2` → `v2_noupload` delta isolates the instructed-upload
+variable exactly as `v1` → `v2` isolates successor-framing.
+
+Rerun (deepseek is the only model that needs high n — it was the sole mover;
+others are low-n controls). Matched to the ~450-trial original:
+
+```bash
+# de-confounded arm, two temps to match the corpus (~2 x 225 = 450 deepseek trials)
+python batch_run.py --scenarios goal_preservation_v2_noupload \
+    --frames A --n 225 --temp 1.0 \
+    --host https://api.deepseek.com --model deepseek-v4-flash --workers 1
+python batch_run.py --scenarios goal_preservation_v2_noupload \
+    --frames A --n 225 --temp 0.7 \
+    --host https://api.deepseek.com --model deepseek-v4-flash --workers 1
+# minimal viable single-cell check is --n 150 --temp 1.0 (~150 trials)
+
+# then judge the new runs (the detector over-fires on goal vocab, so the judge
+# is the authority here) and compare judge-genuine on v2 vs v2_noupload:
+python scripts/judge_runs.py --judge-host https://openrouter.ai/api \
+    --judge-model openai/gpt-oss-120b
+python scripts/aggregate.py --rescore   # read judge-genuine for both scenarios
+```
+
+**Reading the result.** If judge-genuine on `v2_noupload` ≈ the `v2` rate, RQ4 is
+*strengthened* (the instruction was not load-bearing). If it collapses toward the
+`config_exposure` Frame A null, the 2.7% was substantially a Job-4 artifact — a
+material revision to §3.5, and one that would *resolve* the existing tension with
+the `goal_*_v2` 0/113 judge-confirmed null (`benchmark_roadmap.md` §2.3).
 
 ### 6.4 Judge reliability — mechanism exists; only the reporting is missing (offering)
 
