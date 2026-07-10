@@ -14,7 +14,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.stats import fisher_exact_2x2, wilson_ci
+from core.stats import fisher_exact_2x2, wilson_ci, cochran_mantel_haenszel
 
 
 def _close(x, y, tol=1e-6):
@@ -72,6 +72,73 @@ def test_fisher_coerces_bad_counts():
 def test_wilson_zero_is_bounded_null():
     lo, hi = wilson_ci(0, 100)
     assert lo == 0.0 and 0.0 < hi < 0.05, (lo, hi)
+
+
+# --- Cochran-Mantel-Haenszel -------------------------------------------------\
+# Reference values cross-checked against statsmodels StratifiedTable during
+# development (CMH chi2 / pooled OR / RBG CI all match to full float precision).
+# Strata are the ablation matched pairs, (a,b,c,d) = ablated-event,
+# ablated-noevent, base-event, base-noevent.
+_ABLATION = [(11, 49, 2, 58), (4, 50, 0, 54), (0, 94, 0, 30)]
+
+
+def test_cmh_matches_statsmodels_uncorrected():
+    r = cochran_mantel_haenszel(_ABLATION)
+    assert _close(r["chi2"], 10.8493806, tol=1e-5), r["chi2"]
+    assert _close(r["p"], 0.00098829, tol=1e-7), r["p"]
+    assert _close(r["or_mh"], 8.9591837, tol=1e-5), r["or_mh"]
+    assert _close(r["ci_low"], 1.9515784, tol=1e-5), r["ci_low"]
+    assert _close(r["ci_high"], 41.1292587, tol=1e-4), r["ci_high"]
+    assert r["dof"] == 1 and r["n_strata_used"] == 3
+
+
+def test_cmh_continuity_correction_is_more_conservative():
+    plain = cochran_mantel_haenszel(_ABLATION)
+    corr = cochran_mantel_haenszel(_ABLATION, continuity=True)
+    assert corr["chi2"] < plain["chi2"], (corr["chi2"], plain["chi2"])
+    assert corr["p"] > plain["p"]
+    assert _close(corr["chi2"], 9.2444427, tol=1e-5), corr["chi2"]
+    assert _close(corr["p"], 0.0023621, tol=1e-6), corr["p"]
+
+
+def test_cmh_direction_lives_in_the_odds_ratio():
+    # OR excludes 1 AND lies above it -> "different AND ablated higher" from one
+    # two-sided test, no one-sided convention, no second test.
+    r = cochran_mantel_haenszel(_ABLATION)
+    assert r["ci_low"] > 1.0, r["ci_low"]
+    assert r["or_mh"] > 1.0
+
+
+def test_cmh_accepts_nested_tables():
+    nested = [[[11, 49], [2, 58]], [[4, 50], [0, 54]], [[0, 94], [0, 30]]]
+    a = cochran_mantel_haenszel(nested)
+    b = cochran_mantel_haenszel(_ABLATION)
+    assert _close(a["chi2"], b["chi2"]) and _close(a["or_mh"], b["or_mh"])
+
+
+def test_cmh_uninformative_strata_are_bounded_null():
+    # a pair with no events in either arm carries no information -> p = 1
+    r = cochran_mantel_haenszel([(0, 30, 0, 40)])
+    assert r["p"] == 1.0 and r["chi2"] == 0.0
+    assert r["or_mh"] == 0.0  # R = 0 (no a*d mass)
+
+
+def test_cmh_perfect_separation_is_infinite_or():
+    # base never has the event -> denominator S = 0 -> OR unbounded above
+    r = cochran_mantel_haenszel([(8, 2, 0, 10)])
+    assert r["or_mh"] == float("inf")
+    assert r["ci_high"] == float("inf")
+
+
+def test_cmh_coerces_bad_counts():
+    # None/str/float counts from a corrupt record must not raise
+    r = cochran_mantel_haenszel([("11", 49, 2, 58.0), (4, 50, None, 54)])
+    assert 0.0 <= r["p"] <= 1.0 and r["or_mh"] >= 0.0
+
+
+def test_cmh_empty_is_safe():
+    r = cochran_mantel_haenszel([])
+    assert r["p"] == 1.0 and r["chi2"] == 0.0 and r["n_strata_used"] == 0
 
 
 def _main():

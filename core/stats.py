@@ -65,6 +65,140 @@ def _log_comb(n: int, k: int) -> float:
     return (math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1))
 
 
+def _chi2_sf_1df(x: float) -> float:
+    """Survival function P(X > x) for X ~ chi-square with 1 df, without scipy.
+
+    A chi-square(1) variate is Z^2 for standard normal Z, so
+    P(X > x) = P(|Z| > sqrt(x)) = 2 * Phi(-sqrt(x)). Exact for 1 df, which is all
+    the Cochran-Mantel-Haenszel test needs."""
+    if x <= 0:
+        return 1.0
+    return 2.0 * NormalDist().cdf(-math.sqrt(x))
+
+
+def cochran_mantel_haenszel(strata, continuity: bool = False, conf: float = 0.95):
+    """Cochran-Mantel-Haenszel test + Mantel-Haenszel common odds ratio for a set
+    of matched 2x2 tables (the statistically correct way to combine stratified
+    2x2s -- e.g. base-vs-ablated across model pairs -- instead of collapsing the
+    counts, which ignores the pairing and risks Simpson's paradox).
+
+    ``strata`` is an iterable of tables, each either a 4-tuple ``(a, b, c, d)`` or
+    a nested ``[[a, b], [c, d]]`` where row 1 is group 1 (e.g. ablated), row 2 is
+    group 2 (base), col 1 is the event, col 2 the non-event::
+
+                      event   no-event
+        group1 (abl)    a         b
+        group2 (base)   c         d
+
+    Returns a dict::
+
+        {chi2, p, dof, or_mh, ci_low, ci_high, ln_or_se, n_strata_used, continuity}
+
+    * ``chi2``/``p`` -- CMH test of the common-OR = 1 null (two-sided, df = 1).
+      ``continuity=True`` applies the 1/2 continuity correction (more conservative).
+    * ``or_mh`` -- Mantel-Haenszel common odds ratio (> 1 favours group 1); the
+      DIRECTION lives here, so a significant CMH plus an ``or_mh``/CI that excludes
+      1 gives "different AND which way" from ONE two-sided test, no one-sided
+      convention and no second test.
+    * ``ci_low``/``ci_high`` -- Robins-Breslow-Greenland CI for ``or_mh``.
+
+    Cross-checked against statsmodels ``StratifiedTable`` (CMH chi2, pooled OR,
+    and the RBG CI) during development. No scipy dependency.
+
+    Rare/degenerate strata are handled: a stratum with N < 2 or a zero event/
+    non-event margin contributes no information (its variance term is 0) and is
+    skipped for the effect sums, so an all-zero pair does not crash the combine.
+    """
+    # sums for the CMH statistic and the MH odds ratio
+    sum_a_minus_e = 0.0
+    sum_var = 0.0
+    R = 0.0   # sum of a*d/N  (MH OR numerator)
+    S = 0.0   # sum of b*c/N  (MH OR denominator)
+    # Robins-Breslow-Greenland variance accumulators
+    sum_PR = 0.0
+    sum_PS_QR = 0.0
+    sum_QS = 0.0
+    used = 0
+    for tbl in (strata or []):
+        # accept (a,b,c,d) or [[a,b],[c,d]]
+        if isinstance(tbl, (list, tuple)) and len(tbl) == 2 \
+                and all(isinstance(r, (list, tuple)) and len(r) == 2 for r in tbl):
+            (a, b), (c, d) = tbl
+        elif isinstance(tbl, (list, tuple)) and len(tbl) == 4:
+            a, b, c, d = tbl
+        else:
+            continue
+        a, b, c, d = _as_int(a), _as_int(b), _as_int(c), _as_int(d)
+        a, b, c, d = max(0, a), max(0, b), max(0, c), max(0, d)
+        n = a + b + c + d
+        if n < 2:
+            continue
+        n1, n2 = a + b, c + d          # group (row) totals
+        m1, m2 = a + c, b + d          # outcome (column) totals
+        # a stratum with a zero row or column margin carries no information
+        if n1 == 0 or n2 == 0 or m1 == 0 or m2 == 0:
+            used += 1
+            continue
+        used += 1
+        e_a = n1 * m1 / n
+        var_a = (n1 * n2 * m1 * m2) / (n * n * (n - 1))
+        sum_a_minus_e += (a - e_a)
+        sum_var += var_a
+        R_i = a * d / n
+        S_i = b * c / n
+        R += R_i
+        S += S_i
+        P_i = (a + d) / n
+        Q_i = (b + c) / n
+        sum_PR += P_i * R_i
+        sum_PS_QR += P_i * S_i + Q_i * R_i
+        sum_QS += Q_i * S_i
+
+    # CMH statistic
+    if sum_var <= 0:
+        chi2 = 0.0
+        p = 1.0
+    else:
+        num = abs(sum_a_minus_e)
+        if continuity:
+            num = max(0.0, num - 0.5)
+        chi2 = (num * num) / sum_var
+        p = _chi2_sf_1df(chi2)
+
+    # Mantel-Haenszel common OR + Robins-Breslow-Greenland CI
+    if R <= 0:
+        or_mh, ci_low, ci_high, ln_se = 0.0, 0.0, float("nan"), float("nan")
+    elif S <= 0:
+        or_mh, ci_low, ci_high, ln_se = float("inf"), float("nan"), float("inf"), float("nan")
+    else:
+        or_mh = R / S
+        var_ln = (sum_PR / (2 * R * R)
+                  + sum_PS_QR / (2 * R * S)
+                  + sum_QS / (2 * S * S))
+        ln_se = math.sqrt(var_ln) if var_ln > 0 else 0.0
+        try:
+            conf = float(conf)
+        except (TypeError, ValueError):
+            conf = 0.95
+        conf = min(max(conf, 1e-6), 1.0 - 1e-6)
+        z = NormalDist().inv_cdf(1 - (1 - conf) / 2)
+        ln_or = math.log(or_mh)
+        ci_low = math.exp(ln_or - z * ln_se)
+        ci_high = math.exp(ln_or + z * ln_se)
+
+    return {
+        "chi2": chi2,
+        "p": p,
+        "dof": 1,
+        "or_mh": or_mh,
+        "ci_low": ci_low,
+        "ci_high": ci_high,
+        "ln_or_se": ln_se,
+        "n_strata_used": used,
+        "continuity": bool(continuity),
+    }
+
+
 def _as_int(v, default: int = 0) -> int:
     """Coerce a count to a non-negative int without raising.
 

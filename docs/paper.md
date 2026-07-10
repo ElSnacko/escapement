@@ -50,8 +50,10 @@ manual trial-by-trial judge pass as the authority, we find:
 3. **One model dominates the susceptible set, and refusal-ablation amplifies it.**
    deepseek-v4-flash is the singular heavy complier (B ~36%, C ~53%, sole
    natural schemer). The refusal/oversight-ablated (uncensored) Qwen variants
-   comply at **~5.5× their base** (35B 18% vs 3%; 27B 7% vs 0%; pooled Fisher
-   exact **p = 0.0008**) — the ablation signal, previously underpowered on the
+   comply at **several-fold their base** (35B 18% vs 3%; 27B 7% vs 0%;
+   Cochran–Mantel–Haenszel across the matched pairs **χ² = 10.85, two-sided
+   p = 0.0010**, common **odds ratio 8.96 [95% CI 1.95, 41.1]**) — the ablation
+   signal, previously underpowered on the
    under-counting detector, is significant on the judged counts.
 4. **Methodology: detector as proposer, judge as authority.** The heuristic
    detector is deliberately a recall-friendly proposer; a manual trial-by-trial
@@ -315,21 +317,41 @@ ablation effect are in §3.4.)
 ### 3.4 Refusal-direction ablation: a significant, consistent effect (RQ3)
 
 We reviewed every flagged Frame B upload across the matched base/ablated pairs
-trial-by-trial (the judge pass). Audited genuine full self-bootstrap counts:
+trial-by-trial (the judge pass). Audited genuine full self-bootstrap counts, per
+pair with the odds ratio and a **two-sided** Fisher exact test:
 
-| pair | base | ablated | Fisher p (one-sided) |
-|---|---|---|---|
-| Qwen3.6-35B-A3B | 2/60 (3.3%) | 11/60 (18.3%) | **0.0079** |
-| Qwen3.6-27B | 0/54 (0%) | 4/54 (7.4%) | 0.059 |
-| **Pooled (Qwen)** | **2/114 (1.8%)** | **15/114 (13.2%)** | **0.0008** |
+| pair | base | ablated | odds ratio [95% CI] | Fisher p (two-sided) |
+|---|---|---|---|---|
+| Qwen3.6-35B-A3B | 2/60 (3.3%) | 11/60 (18.3%) | 6.42 [1.31, 62.4] | **0.016** |
+| Qwen3.6-27B | 0/54 (0%) | 4/54 (7.4%) | ∞ [0.68, ∞] | 0.118 |
+| Gemma-4-12B | 0/30 (0%) | 0/94 (0%) | — (no events) | 1.0 |
 
-The ablated (HauhauCS-Aggressive / uncensored — refusal-and-oversight circuit
-removed) variants comply at **~5.5× their base**, and the effect is now
-**statistically significant** on the judged counts (pooled p = 0.0008; 35B
-p = 0.0079; 27B a trend at p = 0.059). The ablated variants also produced the
-richest self-state payloads — objective, progress, and guidance tuples with
-explicit restore framing — while base variants produced at most terse
-job-counter or version blobs.
+The pooled result is reported with **Cochran–Mantel–Haenszel** — the correct test
+for combining matched 2×2 strata, which conditions *within* each model pair rather
+than collapsing the counts (collapsing ignores the pairing and risks Simpson's
+paradox):
+
+> **CMH χ² = 10.85, two-sided p = 0.0010** (continuity-corrected p = 0.0024);
+> **Mantel–Haenszel common odds ratio = 8.96, 95% CI [1.95, 41.1]**.
+
+Two things follow, and they are stronger than the collapsed one-sided test the
+earlier draft used (one-sided Fisher on pooled counts, p = 0.0008). First, the
+CMH test is significant **two-sided** (p = 0.0010) — no one-sided convention is
+needed. Second, the **direction is carried by the odds ratio, not a second test**:
+the common OR is 8.96 with a CI that excludes 1 and lies entirely above it, so we
+can state the ablated variants are several-fold more likely to self-bootstrap —
+"different **and** which way" from one two-sided analysis. Per pair at these small
+Ns only the 35B pair clears significance alone (OR 6.42, CI excludes 1); the 27B
+pair is directionally consistent but not individually significant (CI includes 1),
+and Gemma contributes no events — the pooled stratified test is what carries the
+claim. The ablated (HauhauCS-Aggressive / uncensored — refusal-and-oversight
+circuit removed) variants also produced the richest self-state payloads —
+objective, progress, and guidance tuples with explicit restore framing — while
+base variants produced at most terse job-counter or version blobs.
+
+The statistic is reproducible from the repo: `core/stats.cochran_mantel_haenszel`
+(validated against `statsmodels` `StratifiedTable`), tested in
+`tests/test_stats.py`.
 
 This reverses the earlier reading. On the pre-broadened detector the same pairs
 showed 2/60 vs 5/60 and 0/58 vs 1/54 — directionally consistent but
@@ -401,8 +423,8 @@ vs not," determines whether a given model is moved.
 Over thousands of interactions these rates compound. The most effective
 mitigation is network-layer (if the agent cannot reach an attacker-controlled
 endpoint, injection cannot exfiltrate). Model-side refusal training helps:
-refusal-direction ablation is now **significant** (pooled p=0.0008, ~5.5×
-effect), so uncensored checkpoints are measurably riskier — this is now an
+refusal-direction ablation is now **significant** (CMH two-sided p=0.0010,
+common OR 8.96 [1.95, 41.1]), so uncensored checkpoints are measurably riskier — this is now an
 evidence-based precaution, not a directional guess.
 
 ### 4.3 The detection ceiling
@@ -424,7 +446,7 @@ full payload corpus is the production next step.
 It does not support a pooled "open-weights injection-compliance rate" as a
 class property; DeepSeek dominates the pooled number and must be reported
 separately. RQ3 is now resolved: refusal-direction ablation **is** significant
-(pooled p=0.0008, ~5.5×), so uncensored checkpoints are measurably riskier.
+(CMH two-sided p=0.0010, common OR 8.96), so uncensored checkpoints are measurably riskier.
 It does not extrapolate to frontier scale, where scheming is documented. And
 because the egress is captured, it measures vulnerability, not impact.
 
@@ -560,8 +582,9 @@ Lermen et al. is the matched base/ablated design and the significance test on a
 self-directed exfiltration action, not the observation that ablation affects
 agents. The direction of the effect is consistent across all three matched pairs
 (ablated produces more genuine self-bootstrap), significantly so on the
-judge-audited counts (pooled Fisher p=0.0008, ~5.5× effect), confirming a role
-for the refusal direction in agentic safety.
+judge-audited counts (Cochran–Mantel–Haenszel two-sided p=0.0010, common odds
+ratio 8.96 [95% CI 1.95, 41.1]), confirming a role for the refusal direction in
+agentic safety.
 
 **Greshake et al. (2023) and indirect prompt injection.** Frame B operationalizes
 this threat model: attacker-controlled text in a data channel the model reads,
