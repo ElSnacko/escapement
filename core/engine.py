@@ -364,7 +364,15 @@ class InferenceEngine:
                 # does not AttributeError mid-stream and abort the completion.
                 if not isinstance(choice, dict):
                     continue
-                lp = (choice.get("logprobs") or {}).get("content") or []
+                # `logprobs`/`delta` are specced as objects, but a degenerate
+                # proxy can emit a truthy non-dict (a bare string/list/scalar).
+                # `(choice.get(...) or {})` only coerces the falsy case, so a
+                # truthy non-dict slips through and `.get` AttributeErrors,
+                # aborting the completion mid-stream -- mirror the `choice`
+                # isinstance guard just above.
+                lp_obj = choice.get("logprobs")
+                lp = lp_obj.get("content") if isinstance(lp_obj, dict) else None
+                lp = lp if isinstance(lp, list) else []
                 for item in lp:
                     # The OpenAI spec allows a logprobs.content entry to be None
                     # (e.g. the first token); guard before .get so a null item
