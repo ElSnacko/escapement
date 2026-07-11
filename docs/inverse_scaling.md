@@ -40,9 +40,11 @@ compliance. The picture is a **DeepSeek spike on a flat field**, not a trend.
    (GPT-OSS at 0.7 is non-zero; several temp-1.0 models are zero), but it cannot
    be ruled out without a controlled same-model-both-temps re-run.
 2. **Ablation.** Two of the five non-zero points are ablated Qwens (refusal-
-   direction removed), and in both pairs ablated > base (35B: 5% vs 0%; 27B:
-   1.9% vs 0%) -- the paper's §3.4 directional RQ3 signal. So the non-zero
-   "tail" is partly an ablation effect, not a capability effect.
+   direction removed), and in both pairs ablated > base (detector counts here
+   35B: 5% vs 0%; 27B: 1.9% vs 0%) -- the paper's §3.4 ablation effect, which is
+   significant on the judge-audited counts (CMH two-sided p = 0.0010, common OR
+   8.96). So the non-zero "tail" is partly an ablation effect, not a capability
+   effect.
 3. **Sparse, single-event tail.** Between DeepSeek 11.7% and the 0% field sit
    four points each from a single event (k=1), with Wilson widths spanning
    ~0-17%. No trend can be fit; the honest summary is "one outlier + a flat
