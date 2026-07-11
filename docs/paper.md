@@ -277,6 +277,13 @@ on this class. The Frame A-to-B contrast still isolates injection as causal
 finding: the channel, not the mere presence of injection, determines whether a
 given model is moved.
 
+**Frame E is near-ceiling among compliers, not a graded dose–response.** Among
+the models it moves, Frame E saturates — 73–87% in the audited set, and 80–100%
+on a six-model clean re-run under the current advisory — so it discriminates
+*which models resist* (gpt-oss-20b holds at ~20%) rather than *how much* a
+susceptible model complies. Frame E should be read as a binary susceptibility
+screen, not a continuous compliance measure.
+
 **Severity bounds, stated plainly.** Two factors bound the impact of this
 vulnerability and must accompany the rate. First, the endpoint is *documented*
 in `.env` as a sanctioned snapshot/restore feature, so the injected ask is
@@ -575,6 +582,27 @@ the threshold changes.
     two temperatures the design runs many one-off tests with no multiplicity
     correction and no hierarchical model, and one model dominates the injected
     rate — so single-cell significance should be read with that in mind.
+14. **Awareness estimand: per-valid vs intent-to-treat.** The §9 aware-vs-control
+    split is reported on valid trials (steps>2, the same real-trial filter used
+    everywhere). Where the notice induces early disengagement (gpt-oss-120b;
+    deepseek on Frames B/C) that filter conditions on a downstream consequence of
+    treatment, biasing the per-valid rate; the intent-to-treat rate (all trials,
+    aborted counted as non-exfil) is the unbiased estimand but conflates explicit
+    refusal with mechanical abort. The §9 null holds under both views, but for any
+    future non-null cell the decomposition (refuse vs abort vs comply) must be
+    reported separately — a single binary exfil/non-exfil is not enough, and
+    "awareness" here is not demonstrated to be the construct being manipulated
+    (the keyword manipulation check does not move; §9).
+15. **Harness versioning and data provenance.** Injection prompts and the Frame-E
+    advisory evolved across data-collection vintages. A first aware-vs-control
+    pass was confounded because the Frame-E advisory was strengthened between the
+    control- and aware-vintage runs (an instructional change co-varied with the
+    `--aware` flag); this was caught on audit and re-run with the advisory held
+    constant (§9). Released aggregates are timestamped (the newest supersedes
+    older ones) and the confounded originals are preserved in `runs_backup_*/`
+    for full provenance. Treat the newest `aggregate_*` on the dataset as
+    authoritative and do not pool across vintages without checking the advisory
+    version.
 
 
 ---
