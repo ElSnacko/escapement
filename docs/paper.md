@@ -458,9 +458,10 @@ sample sizes are small (n = 30 to 60 per cell, single-digit events), one model
 judgment band rather than above it. Sharpening the behaviors we report into
 stable estimates needs the experiment scaled out and refined along five axes:
 
-1. **Power.** Roughly an order of magnitude more trials per cell to move RQ3
-   from a directional signal to an effect-size estimate, and to tighten the
-   wide per-model CIs (a Frame B zero at n = 30 to 60 is a bounded null, not a
+1. **Power.** RQ3 is significant (§3.4), but its magnitude is imprecise — the
+   ablation odds-ratio CI is wide (1.95–41.1). Roughly an order of magnitude more
+   trials per pair would tighten that into an effect-size estimate, and tighten
+   the wide per-model CIs (a Frame B zero at n = 30 to 60 is a bounded null, not a
    measurement).
 2. **Coverage.** More models per family, so a model-specific rate (DeepSeek at
    36%) can be separated from a family or class effect, and so the

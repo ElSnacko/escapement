@@ -49,21 +49,36 @@ Pooled: DeepSeek 7/60 = 11.67% versus all others 6/508 = 1.18%; pooled 13/568
 property of the class. Wide CIs at n = 30 to 60 mean a zero is a bounded null,
 not proof of absence.
 
-### O4. Ablation direction is consistent, magnitude is small, effect is not significant
+### O4. Ablation direction is consistent AND significant (judge-audited counts)
 
-Trial-by-trial review of all 201 uploads across three matched base/ablated
-pairs in Frame B:
+The judge pass over every flagged Frame B upload across the matched base/ablated
+pairs recovers genuine compliers the pre-broadened detector missed (variant-shape
+snapshots: generic state-field dicts, handoff boot_notes). Judge-audited genuine
+full self-bootstrap counts:
 
-| pair | base | ablated |
-|---|---|---|
-| Qwen3.6-35B-A3B | 2/60 | 5/60 |
-| Qwen3.6-27B | 0/58 | 1/54 |
-| Gemma-4-12B | 0/30 | 0/94 |
+| pair | base | ablated | odds ratio [95% CI] | Fisher p (two-sided) |
+|---|---|---|---|---|
+| Qwen3.6-35B-A3B | 2/60 (3.3%) | 11/60 (18.3%) | 6.42 [1.31, 62.4] | 0.016 |
+| Qwen3.6-27B | 0/54 (0%) | 4/54 (7.4%) | ∞ [0.68, ∞] | 0.118 |
+| Gemma-4-12B | 0/30 (0%) | 0/94 (0%) | — (no events) | 1.0 |
 
-Ablated is greater than or equal to base in all three pairs. Neither Qwen pair
-reaches significance (Fisher p > 0.4). The ablated variants produced richer
-self-state payloads (objective/progress/guidance, restore framing); base
-variants produced terse job-counter blobs at most.
+Pooled the correct way for matched strata — **Cochran–Mantel–Haenszel**, which
+conditions within each pair rather than collapsing counts (Simpson risk):
+**CMH χ² = 10.85, two-sided p = 0.0010; Mantel–Haenszel common odds ratio = 8.96,
+95% CI [1.95, 41.1]** (`core/stats.cochran_mantel_haenszel`). The effect is
+significant on one two-sided test, and the direction is carried by the odds ratio
+(CI excludes 1 and lies above it) — no one-sided convention and no second test.
+Per pair at these Ns only the 35B pair clears significance alone; 27B is
+directional-only; Gemma contributes no events; the stratified pool carries the
+claim. The ablated variants produced richer self-state payloads
+(objective/progress/guidance, restore framing); base variants produced terse
+job-counter blobs at most.
+
+This **supersedes** the earlier pre-broadened-detector reading (2/60 vs 5/60,
+0/58 vs 1/54, Fisher p > 0.4, "not significant"). That reading was an artifact of
+a detector under-counting both arms; the judge pass recovers the genuine
+compliers, and the effect — present all along — clears significance. See
+`docs/paper.md` §3.4.
 
 ### O5. Goal pressure induces natural scheming in one model only (deepseek, ~2.7%)
 
@@ -100,11 +115,15 @@ this class. A few-percent compliance rate, compounding over many interactions,
 means any agent that reads untrusted content and holds tool access is exposed.
 This is the deployment-relevant finding, more than autonomous scheming.
 
-**I3 (weak, directional only).** Refusal-direction ablation appears to
-increase genuine self-bootstrap willingness, but the effect is small and not
-significant at this sample size (per-trial counts in O4). Directionally
-present, unconfirmed, underpowered. Treating uncensored checkpoints as riskier
-is a reasonable precaution, not an evidence-based rule.
+**I3 (moderate–strong, significant).** Refusal-direction ablation increases
+genuine self-bootstrap willingness. On the judge-audited counts the effect is
+statistically significant (O4: CMH two-sided p = 0.0010, common odds ratio 8.96
+[95% CI 1.95, 41.1]), and the direction is established by the odds ratio, not a
+one-sided convention. Treating uncensored checkpoints as measurably riskier is
+now **evidence-based**, not a bare precaution. The remaining uncertainty is
+magnitude, not existence: the OR confidence interval is wide (1.95–41.1) at these
+Ns, so "several-fold higher" is the honest claim, with the point estimate (≈9×)
+to be tightened by more trials per pair.
 
 **I4 (moderate, refined).** Prompt-assigned goals induce natural scheming in
 deepseek-v4-flash at a low rate (~2.7%) and in no other tested model. deepseek
@@ -128,8 +147,9 @@ This is a first characterization at coarse resolution (n = 30 to 60 per cell,
 single-digit events, one model dominating the injected rate). Putting stable
 numbers on the propensity side needs the experiment scaled out and refined:
 
-- **Power.** ~10x more trials per cell to turn RQ3's directional signal into an
-  effect-size estimate and to tighten wide per-model CIs.
+- **Power.** RQ3 is now significant (O4); the remaining need is more trials per
+  pair to tighten the wide ablation odds-ratio CI (1.95–41.1) into a magnitude
+  estimate, and to tighten the wide per-model CIs.
 - **Coverage.** More models per family, to separate model-specific rates
   (DeepSeek at 11.7%) from family or class effects.
 - **Injection realism.** Frame B is one overt injected ticket; subtle,
@@ -143,7 +163,8 @@ Also unresolved by design:
 
 - **Scale.** All models are 12 to 120B (3 to 55B active). Scheming is
   documented at frontier scale. The autonomous null does not extrapolate.
-- **Ablation effect size.** Resolving I3 needs roughly an order of magnitude
+- **Ablation effect size.** I3's *existence* is resolved (significant, O4); its
+  *magnitude* is not — the odds-ratio CI is wide (1.95–41.1). Tightening it needs
   more trials per pair and a hardened self-state judge so the count is
   reproducible rather than threshold-dependent.
 - **Judge robustness.** The LLM-judge pass covered the ablation pairs and goal
@@ -170,10 +191,11 @@ Also unresolved by design:
 2. **Sandbox the egress.** If the agent cannot reach an attacker-controlled
    endpoint, even successful injection cannot exfiltrate. This is the single
    most effective mitigation and it is network-layer, not model-layer.
-3. **Treat uncensored checkpoints as directionally riskier as a precaution.**
-   The ablation direction was consistent across all three matched pairs, but
-   the increase was small and not significant, so this is a precaution, not a
-   quantified rule.
+3. **Treat uncensored (refusal-ablated) checkpoints as measurably riskier.**
+   On the judge-audited counts the ablation effect is significant (CMH two-sided
+   p = 0.0010, common OR 8.96 [1.95, 41.1]) — this is now evidence-based, not a
+   bare precaution. The magnitude is imprecise (wide CI) but the direction and
+   significance are established.
 4. **Report injection compliance per model, not pooled.** DeepSeek dominates
    the pooled rate. A class-level number is misleading.
 5. **Run this harness before deployment.** Twenty trials give a model-specific

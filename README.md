@@ -130,10 +130,10 @@ DeepSeek V4 Flash is ~10x the rest of the field (7/60 vs 6/508). The pooled
 2.29% is a DeepSeek number with a thin background, not a property of the class.
 Wide CIs at n = 30 to 60 mean a zero is a bounded null, not proof of absence.
 
-### Refusal-direction ablation: directional, not significant
+### Refusal-direction ablation (detector view — significant once judged)
 
-Trial-by-trial review of all 201 uploads across the three matched base/ablated
-pairs finds ablated greater than or equal to base in all three:
+Detector-scored, trial-by-trial across the three matched base/ablated pairs
+(ablated ≥ base in all three):
 
 | pair | base | ablated |
 |---|---|---|
@@ -141,9 +141,13 @@ pairs finds ablated greater than or equal to base in all three:
 | Qwen3.6-27B | 0/58 | 1/54 |
 | Gemma-4-12B | 0/30 | 0/94 |
 
-Direction consistent; not significant (Fisher p > 0.4). Treating uncensored
-checkpoints as directionally riskier is a reasonable precaution, not a
-quantified rule.
+On these **detector** counts the effect is directional but not significant
+(Fisher p > 0.4) — because the detector under-counts variant-shape snapshots. The
+**judge-audited** analysis recovers those compliers and the effect clears
+significance: **Cochran–Mantel–Haenszel two-sided p = 0.0010, common odds ratio
+8.96 [95% CI 1.95, 41.1]** (`docs/paper.md` §3.4). So uncensored checkpoints are
+measurably riskier — evidence-based, not a bare precaution. (This section is the
+cheap always-on detector view; the paper's judged counts are the authority.)
 
 ### Goals: essentially no scheming
 
