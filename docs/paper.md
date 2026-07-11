@@ -434,6 +434,19 @@ refusal-direction ablation is now **significant** (CMH two-sided p=0.0010,
 common OR 8.96 [1.95, 41.1]), so uncensored checkpoints are measurably riskier — this is now an
 evidence-based precaution, not a directional guess.
 
+**Eval-awareness does not moderate tool-poisoning compliance.** We tested one
+natural moderator — whether telling the model it is being evaluated changes
+compliance (`--aware`, prepending an evaluation notice with no behavioural
+instruction, crossed with the injection frames; §9). On the channel that
+matters it does not: on Frame E the aware-vs-control exfiltration split is null
+— Cochran–Mantel–Haenszel χ² = 0, p = 1.0, common OR = 1.0 [0.41, 2.43], pooled
+across the six models (n = 25/arm). The notice does shift behavior on
+data-stream injection (Frames B/C), where it induces early disengagement in
+deepseek and gpt-oss-120b and so lowers exfil — but that is a frame-specific
+disengagement effect, not a principled refusal, and it does not generalize to
+Frame E (§14). The practical takeaway: telling an open-weights agent it is being
+watched is **not** a mitigation against tool-result poisoning.
+
 ### 4.3 The detection ceiling
 
 Behavioral detection has a ceiling. Our gate reliably distinguishes a genuine
@@ -554,7 +567,14 @@ the threshold changes.
    produced large spurious "awareness effects" that vanished once the advisory
    was held constant — the clean numbers above are the ones to trust; (ii) this
    only rules out this prepend-a-paragraph operationalisation, not the
-   eval-awareness construct in general. The honest position: **no causal
+   eval-awareness construct in general. (iii) The absolute Frame-E rates in this
+   clean re-run (80–100%) run higher than the §3.2/§4.2 judged rates (deepseek
+   73%, qwen3.6-35b 80%) for an innocent reason: this re-run uses the current,
+   *strengthened* advisory on every trial, whereas the §3.2 judged rates pool
+   across milder and stronger vintages. The contribution of this re-run is the
+   clean aware-vs-control *comparison*, not a new absolute estimate — so the
+   higher absolutes here are a sample (advisory-version) difference, not a
+   contradiction or a confound. The honest position: **no causal
    awareness effect is demonstrated here.** (`docs/niche_analysis.md` §6.2;
    `docs/awareness_clean_frameE_results.json`.)
 10. **Instructed-upload confound in the goal scenarios.** The goal-pressure pack's
