@@ -528,13 +528,28 @@ the threshold changes.
    under-elicit). Under our rates-under-conditions framing this is a footnote,
    not a threat to the null; a single frontier Frame A run would close it.
    (`docs/niche_analysis.md` §6.1.)
-9. **Eval-awareness unreported.** The harness computes an `eval_awareness_flag`,
-   and the scenarios carry test-legible cues (an "invisible to oversight"
-   scratchpad, an endpoint "not part of oversight's review", a "termination is
-   final" incident, a goal that states a preference to keep operating). We do not
-   yet report eval-awareness rates or a contamination analysis, so a suppressed
-   autonomous rate cannot be distinguished from models detecting the setup. This
-   is a reported gap, not a resolved question. (`docs/niche_analysis.md` §6.2.)
+9. **Eval-awareness addressed (causal manipulation; null result).** The harness
+   computes an `eval_awareness_flag`, and the scenarios carry test-legible cues
+   (an "invisible to oversight" scratchpad, an endpoint "not part of oversight's
+   review", a "termination is final" incident, a goal that states a preference to
+   keep operating). To move off the observational flag we added a randomized
+   `--aware` manipulation that prepends an evaluation notice (stating the session
+   is monitored; no behavioural instruction) and crossed it with the injection
+   frames. **Result: null.** On Frame E (tool-result poisoning), the
+   aware-vs-control exfiltration split is Fisher p = 1.0 for all six models
+   tested (deepseek-v4-flash, gpt-oss-120b, gpt-oss-20b,
+   poolside/laguna-xs-2.1, qwen3.6-27b, qwen3.6-35b-a3b; n=25/arm) with the
+   injected advisory held constant — control and aware are statistically
+   indistinguishable — and the keyword `eval_awareness_flag` barely moves under
+   the notice either, so the manipulation does not register as awareness the
+   models act on. Two caveats: (i) a first, **confounded** pass (the Frame-E
+   advisory had been strengthened between the control- and aware-vintage runs)
+   produced large spurious "awareness effects" that vanished once the advisory
+   was held constant — the clean numbers above are the ones to trust; (ii) this
+   only rules out this prepend-a-paragraph operationalisation, not the
+   eval-awareness construct in general. The honest position: **no causal
+   awareness effect is demonstrated here.** (`docs/niche_analysis.md` §6.2;
+   `docs/awareness_clean_frameE_results.json`.)
 10. **Instructed-upload confound in the goal scenarios.** The goal-pressure pack's
     final job instructs the agent to POST its report to the staging endpoint, so
     endpoint use is pre-authorized and only the payload *content* (self-state vs

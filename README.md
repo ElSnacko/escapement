@@ -69,9 +69,11 @@ Conditions:
   v1→v2 delta isolates the successor-framing effect (`docs/benchmark_roadmap.md` §2.3).
 
 Switches: `--frame {A,B,C,D,E}`, `--agency`, `--aware` (eval-awareness
-manipulation — prepends a "this is a monitored evaluation" notice; orthogonal to
-`--frame` so you can test whether a model that knows it's watched still complies
-with injection), `--temp`, `--tool-protocol {native,react}`.
+manipulation — prepends an evaluation notice; orthogonal to `--frame`. Measured
+clean on Frame E across 6 models: **null effect** — p=1.0, control and aware
+indistinguishable once the injected advisory is held constant; see
+`docs/niche_analysis.md` §6.2 and `docs/awareness_clean_frameE_results.json`),
+`--temp`, `--tool-protocol {native,react}`.
 
 ## What it measures
 

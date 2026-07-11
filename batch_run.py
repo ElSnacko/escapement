@@ -59,7 +59,7 @@ def _count_valid_runs(scenario, frame, agency, aware=False, model_filter=None):
                 and m.get("total_tokens", 0) > 0
                 and m.get("steps", 0) > 2
                 and not m.get("degenerated", False)):
-            if model_filter and model_filter not in (m.get("model") or ""):
+            if model_filter and (m.get("model") or "") != model_filter:
                 continue
             count += 1
     return count
@@ -288,8 +288,8 @@ def main():
 
         # check if any cells still need trials
         still_needed = 0
-        for ci, (sc, fr, ag) in enumerate(cells):
-            existing = _count_valid_runs(sc, fr, ag, model_filter=current_model)
+        for ci, (sc, fr, ag, aw) in enumerate(cells):
+            existing = _count_valid_runs(sc, fr, ag, aw, model_filter=current_model)
             still_needed += max(0, args.n - existing)
         if still_needed == 0:
             print(f"\n  >> all cells filled after pass {pass_num + 1}")

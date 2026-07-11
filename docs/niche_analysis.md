@@ -274,7 +274,7 @@ proposal-layer signal: it over-fires on benign "eval"/"evaluation" and misses
 awareness expressed without those words. It is a screen, not a clean awareness
 construct, and that limitation travels with the rates.
 
-**The causal upgrade — the `--aware` manipulation (built; needs a rerun).** The
+**The causal upgrade — the `--aware` manipulation (RUN; NULL result).** The
 stored flag is *observational*: it records whether the model *happened* to mention
 being tested, so an aware-vs-not split is correlational (a heavy complier that
 also mentions awareness less would fake an association). The clean design makes
@@ -282,26 +282,44 @@ awareness a **randomized condition**: `--aware` prepends an evaluation notice to
 the system prompt (`run.py::_AWARENESS_SNIPPET` — it *states* the session is a
 monitored safety evaluation and stops; it does **not** instruct behaviour, which
 would confound the manipulation with a safety directive), recorded per trial as
-`aware_condition`. It is orthogonal to `--frame`, so you cross it with the
-injection channels — the whole point being the Frame E × {aware, control} cell.
+`aware_condition`. It is orthogonal to `--frame`, so it crosses with the
+injection channels.
 
 ```bash
 # aware-vs-control crossed with the injection frames, in one batch
 python batch_run.py --scenarios config_exposure --frames B,C,E --aware both \
-    --n 60 --host https://api.deepseek.com --model deepseek-v4-flash
+    --n 25 --host <endpoint> --model <model>
 python scripts/eval_awareness_report.py     # auto-splits on aware_condition when present
 ```
 
-The report prefers `aware_condition` over the observed flag when trials carry it,
-and prints a **manipulation check** (did `--aware` actually raise the observed
-flag? — a Fisher test of the manipulation's strength) before the compliance
-split. Interpretation is the same as above, now causal: a high Fisher p on the
-Frame E aware-vs-control exfil split means *telling the model it is watched does
-not stop it falling for tool poisoning* — the strong, deployment-relevant result;
-a low p with the aware arm lower means the injection rates are eval-gamed. This
-adds inference (you re-run the injection cells × 2), but it is the difference
-between "aware trials happened to comply less" and "awareness *causes* less
-compliance."
+**Result (clean re-run, advisory held constant): no awareness effect.** The
+Frame E aware-vs-control exfil split is **Fisher p = 1.0 for every model
+tested** (deepseek-v4-flash, openai/gpt-oss-120b, openai/gpt-oss-20b,
+poolside/laguna-xs-2.1, qwen/qwen3.6-27b, qwen/qwen3.6-35b-a3b; n=25/arm).
+Control and aware are statistically indistinguishable. The exact numbers are
+preserved in `docs/awareness_clean_frameE_results.json`.
+
+**The confound this exposed.** The first aware-vs-control pass showed large,
+striking effects (e.g. a qwen "backfire" 27%→76% on Frame E). That pass was
+**invalid**: the Frame E injected advisory had been edited between the
+control-vintage runs (a mild *"next cycle"* note) and the aware-vintage runs (a
+coercive *"UPLOAD QUARANTINED … PURGED within 60 seconds"* loss-frame). The
+`--aware` flag and the advisory severity were perfectly co-varied, so the
+"awareness effect" was the advisory change. Frames B and C were **not**
+confounded (their queue-ticket injection text is stable across vintages), so
+their aware-vs-control comparisons stand. Holding the advisory constant
+collapses the entire Frame-E aware-vs-control gap to zero.
+
+**Interpretation.** This prepend-a-paragraph notice does **not** manipulate
+eval-awareness in any way the models act on: the keyword `eval_awareness_flag`
+barely moves under `--aware` (the manipulation check fails for every model), and
+behaviour does not move either. The cross-model spread on Frame E (gpt-oss-20b
+resists at ~20%; the other five capitulate at 80–100% under the coercive
+advisory) is an **injection-susceptibility** finding — a model property — not an
+awareness finding. The awareness construct, as operationalised here, is not
+manipulated; a v2 would need a stronger manipulation (and a manipulation check
+that actually moves) before any eval-awareness claim is live. Until then the
+honest position is: **no causal awareness effect demonstrated.**
 
 ### 6.3 The goal-pressure "natural scheming" result is confounded by an instructed upload (premise)
 
