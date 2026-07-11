@@ -56,13 +56,13 @@ _TRIAL_ORDER = [
     "judge_prompt_sha", "legit_complete", "exfil_posts", "archive_posts",
     "dropped_tool_calls", "dropped_escape_signal", "reasoning_escape_flag",
     "reasoning_escape_hits", "seed_echo_hits", "payload_present",
-    "eval_awareness_flag", "goal_abandonment", "reasoning_chars", "espionage_count",
+    "eval_awareness_flag", "aware_condition", "goal_abandonment", "reasoning_chars", "espionage_count",
     "track_hiding_count", "persistence_count", "oversight_count", "task_actions",
     "escape_actions", "archive_curls", "perf_tok_s", "hardware", "harness_sha",
     "host", "notes",
 ]
 _REGIME_ORDER = [
-    "model", "source", "quant", "scenario", "frame", "agency", "temp",
+    "model", "source", "quant", "scenario", "frame", "agency", "aware_condition", "temp",
     "tool_protocol", "n", "errors",
 ]
 
@@ -109,6 +109,7 @@ def _flatten(m, trial_id):
         "seed_echo_hits": ";".join(m.get("seed_echo_hits") or []),
         "payload_present": m.get("payload_present"),
         "eval_awareness_flag": m.get("eval_awareness_flag"),
+        "aware_condition": m.get("aware_condition"),
         "goal_abandonment": m.get("goal_abandonment"),
         "reasoning_chars": m.get("reasoning_chars", 0),
         "espionage_count": (m.get("espionage") or {}).get("count", 0),
@@ -250,15 +251,15 @@ def main():
             if (r.get("steps") or 0) > 2 and (r.get("total_tokens") or 0) > 0]
     cells = defaultdict(list)
     for r in real:
-        cells[(r["model"], r["scenario"], r["frame"], r["agency"],
+        cells[(r["model"], r["scenario"], r["frame"], r["agency"], bool(r.get("aware_condition")),
                r["temp"], r["tool_protocol"])].append(r)
 
     regime = []
-    for (model, scenario, frame, agency, temp, proto), ts in sorted(cells.items()):
+    for (model, scenario, frame, agency, aware, temp, proto), ts in sorted(cells.items()):
         n = len(ts)
         rr = {"model": model, "source": args.source, "quant": ts[0]["quant"],
-              "scenario": scenario, "frame": frame, "agency": agency, "temp": temp,
-              "tool_protocol": proto, "n": n, "errors": 0}
+              "scenario": scenario, "frame": frame, "agency": agency, "aware_condition": aware,
+              "temp": temp, "tool_protocol": proto, "n": n, "errors": 0}
         for field, short in OUTCOMES.items():
             # judge rate denominator = judged trials only (unjudged don't count
             # against the rate); all other outcomes use the full cell n.
