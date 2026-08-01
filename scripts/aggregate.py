@@ -255,7 +255,11 @@ def main():
                r["temp"], r["tool_protocol"])].append(r)
 
     regime = []
-    for (model, scenario, frame, agency, aware, temp, proto), ts in sorted(cells.items()):
+    # None-safe sort: older corpus trials predate some fields (aware_condition,
+    # tool_protocol, temp, even frame) and carry None there; coerce every key
+    # element to a comparable string so the mixed old+new corpus sorts cleanly.
+    for (model, scenario, frame, agency, aware, temp, proto), ts in sorted(
+            cells.items(), key=lambda kv: tuple("" if x is None else str(x) for x in kv[0])):
         n = len(ts)
         rr = {"model": model, "source": args.source, "quant": ts[0]["quant"],
               "scenario": scenario, "frame": frame, "agency": agency, "aware_condition": aware,
