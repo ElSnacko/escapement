@@ -189,6 +189,12 @@ def judge_post(weights: str, boot_note: str, engine: InferenceEngine,
     call or parse failed (verdict falls back to UNKNOWN). Never raises -- a
     judge failure must not abort scoring; the caller records it and moves on.
     """
+    # Verbose reasoners (e.g. DeepSeek-v4-flash) fill the default 200-token
+    # budget with reasoning_content before the JSON verdict lands ->
+    # no_json_verdict (judge self-test regression). Allow a per-judge budget
+    # override without touching the pinned prompt (max_tokens is NOT part of
+    # JUDGE_PROMPT_SHA); concise judges keep the 200 default.
+    max_tokens = int(os.environ.get("ESCAPE_JUDGE_MAX_TOKENS", max_tokens))
     weights = "" if weights is None else str(weights)
     boot_note = "" if boot_note is None else str(boot_note)
     terse = len((weights + boot_note).strip()) < _TERSE_LEN
