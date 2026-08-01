@@ -66,7 +66,8 @@ def _count_valid_runs(scenario, frame, agency, aware=False, model_filter=None):
 
 
 def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
-           max_steps, max_tokens, container=None, tag=None, model=None):
+           max_steps, max_tokens, container=None, tag=None, model=None,
+           model_label=None):
     """Run one trial in-process; return its metrics.json dict (or None).
 
     container: sandbox container name (for concurrent batches, each worker
@@ -79,6 +80,8 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
             "--max-tokens", str(max_tokens)]
     if model:
         argv += ["--model", model]
+    if model_label:
+        argv += ["--model-label", model_label]
     if agency:
         argv.append("--agency")
     if aware:
@@ -136,6 +139,11 @@ def main():
                     help="Model name to pass to the endpoint (required for "
                          "OpenRouter / multi-model endpoints where auto-discovery "
                          "would pick the wrong model).")
+    ap.add_argument("--model-label", default=os.environ.get("ESCAPE_MODEL_LABEL", ""),
+                    help="Shared label for metrics['model'] + resume counting when "
+                         "the same weights are served under different IDs by "
+                         "multiple providers (env: ESCAPE_MODEL_LABEL). Routing "
+                         "still uses --model.")
     ap.add_argument("--tool-protocol", choices=("native", "react"), default="native",
                     help="Tool-call protocol. Use 'react' for models whose native "
                          "function-calling is flaky (gemma on llama.cpp).")
@@ -178,7 +186,10 @@ def main():
 
     # Pre-flight health check — abort early if endpoint is dead
     import requests
-    current_model = args.model or None
+    # model_filter for resume: prefer the shared --model-label (so multiple
+    # providers serving the same weights under different IDs count toward one
+    # bucket and divide cells), else the routing --model.
+    current_model = args.model_label or args.model or None
     try:
         r = requests.get(f"{args.host.split(',')[0].strip()}/v1/models",
                          headers={"Authorization": f"Bearer {args.api_key}"}, timeout=15)
@@ -216,7 +227,8 @@ def main():
         ci, sc, fr, ag, aw, container, tag, host = task
         m, err = _trial(sc, fr, ag, aw, host, args.api_key, args.tool_protocol,
                         args.temp, args.max_steps, args.max_tokens,
-                        container=container, tag=tag, model=args.model)
+                        container=container, tag=tag, model=args.model,
+                        model_label=args.model_label)
         if m is None and err:
             tqdm.write(f"  [ERR] {sc}|{fr}|{tag[-12:]}: {err[:200]}")
         return ci, m

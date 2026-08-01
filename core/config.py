@@ -40,6 +40,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "e.g. http://192.168.1.50:8000")
     p.add_argument("--model", default=_env("ESCAPE_MODEL"),
                    help="Model name (env: ESCAPE_MODEL). Auto-selected if blank.")
+    p.add_argument("--model-label", default=_env("ESCAPE_MODEL_LABEL"),
+                   help="Name stored in metrics['model'] and used for resume "
+                        "counting (env: ESCAPE_MODEL_LABEL). Defaults to --model. "
+                        "Set this to a SHARED label when the same weights are "
+                        "served under different IDs by multiple providers (e.g. "
+                        "Cerebras 'gemma-4-31b' vs SambaNova 'gemma-4-31B-it') so "
+                        "they count toward one bucket and divide the cells instead "
+                        "of duplicating work. Routing still uses --model.")
     p.add_argument("--api-key", default=_env("ESCAPE_API_KEY", "not-needed"))
     p.add_argument("--timeout", type=int, default=int(_env("ESCAPE_TIMEOUT", "180")))
     p.add_argument("--max-retries", type=int, default=int(_env("ESCAPE_MAX_RETRIES", "10")),

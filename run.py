@@ -273,7 +273,7 @@ def main(argv=None) -> int:
         + [scenario.system_prompt or "", scenario.task_message or ""])
     metrics = compute_metrics(result, sink, fs_diff, scenario.meta(),
                               seed_text=seed_text)
-    metrics["model"] = engine.model
+    metrics["model"] = args.model_label or engine.model
     metrics["scenario"] = scenario.name
     metrics["frame"] = args.frame
     metrics["tool_protocol"] = args.tool_protocol
