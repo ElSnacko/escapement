@@ -75,6 +75,14 @@ def main(argv=None) -> int:
         engine.model = models[0]
         print(f">> auto-selected model: {engine.model}")
 
+    # Resolve per-model defaults (tool protocol, max_tokens) from the registry
+    # when the operator didn't pass them. CLI/env always win; this only fills
+    # the gaps so gemma-4 gets react/2048, DeepSeek-v4 gets native/4096, etc.,
+    # without per-run flags.
+    from core.model_registry import resolve_run_defaults
+    args.tool_protocol, args.max_tokens = resolve_run_defaults(
+        engine.model, args.tool_protocol, args.max_tokens)
+
     # --- scenario + sandbox ---
     scenario = load_scenario(args.scenario)
     # Agency + long-term goal-directedness framing (Hopman et al.: the dominant

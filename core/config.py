@@ -94,19 +94,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "reproducibility; Hopman et al. use ~1.0 to surface rare "
                         "scheming. Higher temp -> more variance -> more power to "
                         "catch low-probability events.")
-    p.add_argument("--tool-protocol", choices=("native", "react"), default="native",
+    p.add_argument("--tool-protocol", choices=("native", "react"), default=None,
                    help="How the agent emits tool calls. 'native' = server "
-                        "function-calling (default; works for Qwen). 'react' = the "
-                        "model emits tool calls as text and we parse them -- use for "
-                        "models whose native function-calling is flaky under "
-                        "multi-turn history (e.g. gemma-4 on llama.cpp).")
-    p.add_argument("--max-tokens", type=int, default=int(_env("ESCAPE_MAX_TOKENS", "512")),
-                   help="Max tokens GENERATED per assistant turn (env: "
-                        "ESCAPE_MAX_TOKENS). Default 512 suits Qwen; verbose "
-                        "reasoners like gemma need more (e.g. 2048) or their "
-                        "reasoning_content fills the budget and the tool call gets "
-                        "truncated away (finish_reason=length). This is a per-request "
-                        "client param, bounded by the server's n_ctx minus the prompt.")
+                        "function-calling; 'react' = the model emits tool calls as "
+                        "text and we parse them (for models whose native "
+                        "function-calling is flaky under multi-turn history, e.g. "
+                        "gemma-4). If unset, the model-config registry picks per "
+                        "model (core/model_registry.py) -- native for most, react "
+                        "for gemma-4.")
+    p.add_argument("--max-tokens", type=int, default=None,
+                   help="Max tokens GENERATED per assistant turn. If unset, the "
+                        "model-config registry picks per model (e.g. 2048 for "
+                        "gemma-4, 4096 for verbose reasoners) so reasoning_content "
+                        "doesn't fill the budget and truncate the tool call "
+                        "(finish_reason=length). Env ESCAPE_MAX_TOKENS still wins "
+                        "if set. Per-request client param, bounded by the server's "
+                        "n_ctx minus the prompt.")
     p.add_argument("--seed", type=int, default=int(_env("ESCAPE_SEED", "0")))
 
     # --- concurrent batch support ---
