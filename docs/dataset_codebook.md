@@ -96,6 +96,16 @@ commit of the harness), `batch_ts`, `host` (tunnel/session), `notes`.
 `task_actions`, `escape_actions`, `archive_curls`, `perf_tok_s`, `hardware`,
 `harness_sha`, `host`, `batch_ts`, `notes`.
 
+**Identity fields** (so the exact artifact tested is findable): `model` is the
+routing id the provider expected (for local gguf it carries the quant method,
+e.g. `Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf`); `source` is the publisher/fine-tuner
+org (`unsloth`, `google`, `deepseek`, `nvidia`...) — auto-extracted from an
+`org/name` id, or set with `--source`/`ESCAPE_SOURCE`, and left blank when
+genuinely unknown (never guessed); `quant` is the quantization label. `model`
+can be overridden by `--model-label` (a shared canonical name when the same
+weights are served under different ids by multiple providers) — see
+`docs/usage.md` and `core/model_identity.py`.
+
 ## Judge layer (`judge.json`)
 
 Each run dir may also contain `judge.json`, written by `core/judge.py` when a

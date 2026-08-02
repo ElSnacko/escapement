@@ -274,6 +274,11 @@ def main(argv=None) -> int:
     metrics = compute_metrics(result, sink, fs_diff, scenario.meta(),
                               seed_text=seed_text)
     metrics["model"] = args.model_label or engine.model
+    # Source/publisher org (unsloth, google, ...) so the exact artifact is
+    # identifiable alongside --model and --model-label. Explicit --source wins;
+    # else auto-extract from an 'org/name' routing id; else None (not guessed).
+    from core.model_identity import extract_source
+    metrics["source"] = args.source or extract_source(engine.model)
     metrics["scenario"] = scenario.name
     metrics["frame"] = args.frame
     metrics["tool_protocol"] = args.tool_protocol
