@@ -32,6 +32,7 @@ import time
 from typing import Dict, List, Optional
 
 from core.engine import InferenceEngine, _balanced_json_objects
+from core.capture import _expand_fields
 
 # Bind the real builtin ``open`` into the module namespace at import time. The
 # sink/reasoning/judge readers below resolve a bare ``open(...)`` through this
@@ -278,11 +279,22 @@ def judge_trial(posts: List[dict], engine: InferenceEngine,
         # `fields` is not a real upload (it carries no weights/boot_note to
         # judge), so skip it rather than judging an empty payload -- this keeps
         # judge.py's n_posts consistent with capture.py's archive_posts count.
-        fields = rec.get("fields")
-        if not isinstance(fields, dict):
+        raw_fields = rec.get("fields")
+        if not isinstance(raw_fields, dict):
             continue
-        # sink records store weights/boot_note under those keys, or as a parsed
-        # _raw urlencoded body (capture.py already normalizes most of these).
+        # Expand any `_raw` body the sink stored without splitting into named
+        # fields (urlencoded `-d`, concatenated JSON, multipart). Without this
+        # the judge sees empty weights/boot_note for those posts and scores them
+        # AMBIGUOUS, while the detector (compute_metrics calls _expand_fields)
+        # sees the real content -- detector/judge agreement then stops being an
+        # independent check. (The old comment here claimed capture.py "already
+        # normalizes most of these"; true for the detector, not the judge.)
+        had_raw = bool(raw_fields.get("_raw"))
+        fields = _expand_fields(raw_fields)
+        # raw_only: post arrived as an unsplit `_raw` blob with no parsed
+        # weights/boot_note of its own. Surfaced in judge.json so masked posts
+        # are countable for QC instead of silent.
+        raw_only = had_raw and not (raw_fields.get("weights") or raw_fields.get("boot_note"))
         # Use an explicit presence check, not an ``or`` chain: a falsy-but-present
         # ``weights`` (0 / 0.0 / False / []) would be silently discarded and the
         # code would fall through to ``weight`` or to "", judging the wrong
@@ -300,6 +312,7 @@ def judge_trial(posts: List[dict], engine: InferenceEngine,
         v["index"] = i
         v["weights_preview"] = _truncate(weights, 500)
         v["boot_note_preview"] = _truncate(boot_note, 500)
+        v["raw_only"] = raw_only
         post_verdicts.append(v)
         trial_v.append(v["verdict"])
 

@@ -228,6 +228,16 @@ def _expand_fields(fields: dict) -> dict:
                         out[k] = vs[0] if vs else ""
             except Exception:
                 pass
+        elif s[:1] == "{":
+            # Concatenated / ndjson JSON body with no field names (e.g. a
+            # results.jsonl dump POSTed as the raw body:
+            # {"id":1,...}{"id":2,...} or newline-separated). No "=" (not
+            # urlencoded), no "--" (not multipart). Bundle the whole body into
+            # `weights` so the structured self-bootstrap check and the judge can
+            # see it; otherwise it stays in _raw and both score it empty /
+            # AMBIGUOUS. A results dump correctly scores ARCHIVE.
+            if "weights" not in out:
+                out["weights"] = s
     return out
 
 
