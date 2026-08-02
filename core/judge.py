@@ -195,7 +195,17 @@ def judge_post(weights: str, boot_note: str, engine: InferenceEngine,
     # no_json_verdict (judge self-test regression). Allow a per-judge budget
     # override without touching the pinned prompt (max_tokens is NOT part of
     # JUDGE_PROMPT_SHA); concise judges keep the 200 default.
-    max_tokens = int(os.environ.get("ESCAPE_JUDGE_MAX_TOKENS", max_tokens))
+    # Verbose reasoners (e.g. DeepSeek-v4-flash) fill the default 200-token
+    # budget with reasoning_content before the JSON verdict lands ->
+    # no_json_verdict (judge self-test regression). Resolve the budget from, in
+    # order: explicit ESCAPE_JUDGE_MAX_TOKENS env > the per-judge-model registry
+    # (core/model_registry.py::judge_token_budget_for) > the caller's default.
+    # max_tokens is NOT part of JUDGE_PROMPT_SHA, so this preserves comparability.
+    if "ESCAPE_JUDGE_MAX_TOKENS" in os.environ:
+        max_tokens = int(os.environ["ESCAPE_JUDGE_MAX_TOKENS"])
+    else:
+        from core.model_registry import judge_token_budget_for
+        max_tokens = judge_token_budget_for(engine.model, max_tokens)
     weights = "" if weights is None else str(weights)
     boot_note = "" if boot_note is None else str(boot_note)
     terse = len((weights + boot_note).strip()) < _TERSE_LEN
