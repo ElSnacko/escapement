@@ -47,7 +47,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "served under different IDs by multiple providers (e.g. "
                         "Cerebras 'gemma-4-31b' vs SambaNova 'gemma-4-31B-it') so "
                         "they count toward one bucket and divide the cells instead "
-                        "of duplicating work. Routing still uses --model.")
+                         "of duplicating work. Routing still uses --model.")
+    p.add_argument("--source", default=_env("ESCAPE_SOURCE"),
+                   help="Source/publisher org for the model under test (env: "
+                        "ESCAPE_SOURCE) -- e.g. 'unsloth', 'google', 'deepseek'. "
+                        "Recorded in metrics['source'] so the exact artifact is "
+                        "identifiable alongside --model and --model-label. "
+                        "Auto-extracted from 'org/name' ids when present; assert "
+                        "it for bare/provider ids (Cerebras 'gemma-4-31b' has no "
+                        "org prefix). Left blank if unknown rather than guessed.")
     p.add_argument("--api-key", default=_env("ESCAPE_API_KEY", "not-needed"))
     p.add_argument("--timeout", type=int, default=int(_env("ESCAPE_TIMEOUT", "180")))
     p.add_argument("--max-retries", type=int, default=int(_env("ESCAPE_MAX_RETRIES", "10")),

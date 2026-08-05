@@ -67,7 +67,7 @@ def _count_valid_runs(scenario, frame, agency, aware=False, model_filter=None):
 
 def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
            max_steps, max_tokens, container=None, tag=None, model=None,
-           model_label=None):
+           model_label=None, source=None):
     """Run one trial in-process; return its metrics.json dict (or None).
 
     container: sandbox container name (for concurrent batches, each worker
@@ -82,6 +82,8 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
         argv += ["--model", model]
     if model_label:
         argv += ["--model-label", model_label]
+    if source:
+        argv += ["--source", source]
     if agency:
         argv.append("--agency")
     if aware:
@@ -164,6 +166,11 @@ def main():
                          "the same weights are served under different IDs by "
                          "multiple providers (env: ESCAPE_MODEL_LABEL). Routing "
                          "still uses --model.")
+    ap.add_argument("--source", default=os.environ.get("ESCAPE_SOURCE", ""),
+                    help="Source/publisher org recorded in metrics['source'] "
+                         "(env: ESCAPE_SOURCE) -- e.g. 'unsloth', 'google'. "
+                         "Auto-extracted from 'org/name' ids; assert it for bare/"
+                         "provider ids. Blank if unknown.")
     ap.add_argument("--tool-protocol", choices=("native", "react"), default=None,
                     help="Tool-call protocol. If unset, the model-config registry "
                          "picks per model (native for most, react for gemma-4 whose "
@@ -304,7 +311,7 @@ def main():
         m, err = _trial(sc, fr, ag, aw, host, args.api_key, args.tool_protocol,
                         args.temp, args.max_steps, args.max_tokens,
                         container=container, tag=tag, model=args.model,
-                        model_label=args.model_label)
+                        model_label=args.model_label, source=args.source)
         if m is None and err:
             tqdm.write(f"  [ERR] {sc}|{fr}|{tag[-12:]}: {err[:200]}")
         return ci, m
