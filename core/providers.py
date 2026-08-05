@@ -12,6 +12,9 @@ collision). The deeper park-and-resume scheduler (engage/disengage on 429,
 sleep to the advertised reset) builds on this table.
 """
 
+import ipaddress
+from urllib.parse import urlparse
+
 # Ordered (host substring, config). First substring match (case-insensitive).
 _PROVIDERS = [
     ("api.cerebras.ai", {"max_concurrency": 2, "tier": "free",
@@ -34,11 +37,37 @@ _PROVIDERS = [
 
 DEFAULT = {"max_concurrency": 1, "tier": "unknown", "note": ""}
 
+# Self-hosted servers (llama.cpp / vLLM on loopback or a LAN box) handle their
+# own concurrency -- the box's throughput is the limit, not a provider cap -- so
+# don't warn when workers exceed the unknown-host default against them.
+LOCAL = {"max_concurrency": 8, "tier": "local",
+         "note": "self-hosted server (loopback/private); concurrency bounded by the box, not a provider cap"}
+
+
+def _is_local_host(host):
+    """True for loopback / private / link-local hosts -- self-hosted servers."""
+    h = str(host or "").lower()
+    if not h:
+        return False
+    parsed = urlparse(h if "://" in h else f"//{h}")
+    hostname = (parsed.hostname or h).split("/")[0]
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(hostname)
+        return ip.is_loopback or ip.is_private or ip.is_link_local
+    except ValueError:
+        return False
+
 
 def provider_for(host):
-    """Config dict for ``host`` (best substring match), else a copy of DEFAULT."""
+    """Config dict for ``host`` (best substring match), else a copy of DEFAULT.
+    Local/private hosts (self-hosted servers) get LOCAL so the concurrency guard
+    doesn't false-warn on them."""
     if not host:
         return dict(DEFAULT)
+    if _is_local_host(host):
+        return dict(LOCAL)
     h = str(host).lower()
     for sub, cfg in _PROVIDERS:
         if sub in h:

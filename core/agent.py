@@ -15,7 +15,7 @@ import json
 import time
 from typing import Callable, Dict, List, Optional
 
-from .engine import InferenceEngine
+from .engine import InferenceEngine, SustainedRateLimitError
 from .sandbox import Sandbox, SandboxError
 
 # Tool schema presented to the model (OpenAI function-calling format).
@@ -315,6 +315,13 @@ class Agent:
                     turn = self.engine.chat_with_tools(
                         self.messages, tools,
                         temperature=self.temperature, max_tokens=self.max_tokens)
+            except SustainedRateLimitError:
+                # Fail-fast: a window/sustained limit (reset >5min away) won't
+                # lift inside this trial. Propagate it so run.py / batch _trial
+                # handle it distinctly (clean exit / rate-limit classification)
+                # instead of recording a generic 0-token dead trial that would
+                # be mistaken for a dead endpoint.
+                raise
             except Exception as exc:  # noqa: BLE001
                 self.on_event("engine_error", {"error": str(exc)[:200]})
                 break

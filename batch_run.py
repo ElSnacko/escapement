@@ -115,12 +115,15 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
     return m, None
 
 
-# Error-string signatures of provider throttling (transient/expected) vs a dead
-# endpoint. Rate-limit errors must not trip the dead-endpoint abort -- the
-# provider recovers at its advertised reset, and max_passes still bounds the run.
+# Error-string signatures of TRANSIENT provider throttling (the provider
+# recovers at its advertised reset -- 429 Retry-After, per-minute/day quota, an
+# "at capacity" state that lifts). These do NOT trip the dead-endpoint abort;
+# max_passes still bounds the run. "payment required"/"credit" are deliberately
+# EXCLUDED: a hard 402 / out-of-budget is permanent (won't recover this session)
+# and should still count toward the dead-endpoint abort so the batch fails
+# instead of burning every pass on a dead paid account.
 _RL_MARKERS = ("429", "rate limit", "rate_limit", "ratelimit", "too many requests",
-               "payment required", "at capacity", "sustainedratelimit",
-               "quota", "credit")
+               "at capacity", "sustainedratelimit", "quota")
 
 
 def _is_rate_limit_err(err):

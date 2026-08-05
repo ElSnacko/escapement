@@ -191,7 +191,8 @@ def parse_tool_calls(text: str):
 def _parse_reset_ts(headers) -> Optional[float]:
     """Absolute epoch seconds at which a rate limit lifts, parsed from a 429's
     headers: ``Retry-After`` (seconds, per RFC; some send a date), or
-    ``x-ratelimit-reset`` (ms epoch -- Cerebras/OpenRouter). None if neither is
+    ``x-ratelimit-reset`` (ms epoch -- Cerebras/OpenRouter; seconds epoch and
+    relative-seconds are also handled by magnitude). None if neither is
     present or parseable."""
     import email.utils as _eutils
     ra = headers.get("Retry-After") if headers else None
@@ -212,12 +213,21 @@ def _parse_reset_ts(headers) -> Optional[float]:
     xrr = headers.get("x-ratelimit-reset") if headers else None
     if xrr:
         try:
-            return float(xrr) / 1000.0  # ms epoch -> seconds
+            v = float(xrr)
         except (TypeError, ValueError):
-            try:
-                return float(xrr)  # already seconds
-            except (TypeError, ValueError):
-                pass
+            v = None
+        if v is not None:
+            now = time.time()
+            # Disambiguate by magnitude. The previous divide-then-fallback
+            # only branched on a parse exception, so a seconds value like "60"
+            # parsed as 0.06 ms -> Jan 1970. ms epoch ~1.7e12
+            # (Cerebras/OpenRouter); seconds epoch ~1.7e9; a small value is
+            # seconds-from-now.
+            if v > 1e11:
+                return v / 1000.0           # ms epoch -> seconds
+            if v > 1e9:
+                return v                    # already seconds epoch
+            return now + v                  # relative seconds
     return None
 
 

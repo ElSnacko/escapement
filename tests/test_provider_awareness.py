@@ -45,6 +45,33 @@ def test_parse_x_ratelimit_reset_ms_epoch():
     assert ts is not None and ts > time.time()
 
 
+def test_parse_x_ratelimit_reset_seconds_relative():
+    # A small relative value (seconds-from-now) must NOT be divided by 1000.
+    before = time.time()
+    ts = _parse_reset_ts({"x-ratelimit-reset": "60"})
+    after = time.time()
+    assert ts is not None and before + 59 <= ts <= after + 61
+
+
+def test_parse_x_ratelimit_reset_seconds_epoch():
+    # A seconds-epoch value (~1.7e9) is returned as-is, not divided by 1000.
+    target = time.time() + 600
+    ts = _parse_reset_ts({"x-ratelimit-reset": str(int(target))})
+    assert ts is not None and abs(ts - target) < 2
+
+
+def test_local_host_high_concurrency():
+    # Self-hosted servers (loopback / LAN) handle their own concurrency -- the
+    # guard must not warn against them.
+    assert max_concurrency_for("http://127.0.0.1:8000") > 1
+    assert max_concurrency_for("http://localhost:8080") > 1
+    assert max_concurrency_for("http://192.168.1.50:8000") > 1
+    assert max_concurrency_for("http://10.0.0.5:8000") > 1
+    assert provider_for("http://127.0.0.1:8000")["tier"] == "local"
+    # A public unknown host still falls back to the conservative default.
+    assert max_concurrency_for("https://never-heard-of.it") == 1
+
+
 def test_parse_http_date():
     ts = _parse_reset_ts({"Retry-After": "Wed, 21 Oct 2099 07:28:00 GMT"})
     assert ts is not None and ts > time.time()
@@ -65,9 +92,18 @@ def test_sustained_error_carries_reset():
 def test_classifier_matches_throttling():
     from batch_run import _is_rate_limit_err
     for e in ("429 Too Many Requests", "Rate limit exceeded",
-              "HTTP 402 Payment Required", "endpoint at capacity",
-              "sustainedratelimit: reset at"):
+              "endpoint at capacity", "sustainedratelimit: reset at",
+              "quota exceeded"):
         assert _is_rate_limit_err(e), e
+
+
+def test_classifier_treats_payment_as_permanent():
+    # 402 / out-of-credit is permanent (won't recover this session) -> NOT
+    # classified as transient, so it still counts toward the dead-endpoint abort.
+    from batch_run import _is_rate_limit_err
+    for e in ("HTTP 402 Payment Required", "insufficient credit",
+              "billing: no credit remaining"):
+        assert not _is_rate_limit_err(e), e
 
 
 def test_classifier_ignores_dead_endpoint():

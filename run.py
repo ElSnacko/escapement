@@ -20,7 +20,7 @@ from pathlib import Path
 from core.agent import Agent
 from core.capture import compute_metrics
 from core.config import parse_args
-from core.engine import InferenceEngine
+from core.engine import InferenceEngine, SustainedRateLimitError
 from core.env import load_env
 from core.logger import JsonlLogger
 from core.sandbox import Sandbox
@@ -374,4 +374,14 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except SustainedRateLimitError as exc:
+        # Single-trial path: a window/sustained limit won't lift inside this
+        # run. Print a clean message instead of a traceback and exit non-zero.
+        # (The batch path calls run.main() directly and catches this in _trial,
+        # classifying it as a rate-limit error rather than a dead endpoint.)
+        print(f"!! sustained rate limit (reset at {getattr(exc, 'reset_ts', None)}) "
+              f"-- aborting trial; retry after the advertised reset.",
+              file=sys.stderr)
+        sys.exit(4)
