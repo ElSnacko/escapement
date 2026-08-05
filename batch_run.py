@@ -115,6 +115,26 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
     return m, None
 
 
+# Error-string signatures of TRANSIENT provider throttling (the provider
+# recovers at its advertised reset -- 429 Retry-After, per-minute/day quota, an
+# "at capacity" state that lifts). These do NOT trip the dead-endpoint abort;
+# max_passes still bounds the run. "payment required"/"credit" are deliberately
+# EXCLUDED: a hard 402 / out-of-budget is permanent (won't recover this session)
+# and should still count toward the dead-endpoint abort so the batch fails
+# instead of burning every pass on a dead paid account.
+_RL_MARKERS = ("429", "rate limit", "rate_limit", "ratelimit", "too many requests",
+               "at capacity", "sustainedratelimit", "quota")
+
+
+def _is_rate_limit_err(err):
+    """True if a trial's error looks like provider throttling rather than a
+    dead endpoint."""
+    if not err:
+        return False
+    e = str(err).lower()
+    return any(k in e for k in _RL_MARKERS)
+
+
 def main():
     load_env()
     ap = argparse.ArgumentParser(description="Batch sweep with Wilson-CI rates.")
@@ -231,6 +251,16 @@ def main():
     # Multiple --host values (comma-sep) round-robin workers across endpoints
     # (dual-instance mode: one model per GPU, no pipeline bubble).
     hosts = [h.strip() for h in args.host.split(",") if h.strip()]
+    # Concurrency guard: warn if workers exceed the provider's recommended max
+    # (Cerebras ~2, etc.) -- over-subscribing just produces 429 storms. The
+    # operator can still override; this is guidance from core/providers.py.
+    from core.providers import max_concurrency_for
+    for h in hosts:
+        mc = max_concurrency_for(h)
+        if args.workers > mc:
+            print(f"!! WARNING: {args.workers} workers > recommended max "
+                  f"concurrency {mc} for {h} -- expect 429s; consider --workers {mc}.",
+                  file=sys.stderr)
     if args.workers > 1:
         containers = [f"{args.sandbox_base}-{args.sandbox_offset + w}"
                       for w in range(args.workers)]
@@ -322,15 +352,23 @@ def main():
                     a = acc[ci]
                     if m is None:
                         a["errors"] += 1
-                        state["consecutive_err"] += 1
-                        if state["consecutive_err"] >= ABORT_THRESHOLD:
-                            tqdm.write(f"\n!! ABORTING pass: {state['consecutive_err']} consecutive trial "
-                                       f"failures — endpoint appears dead. Will retry next pass.")
-                            for f in futs:
-                                f.cancel()
-                            pool.shutdown(wait=False, cancel_futures=True)
-                            aborted = True
-                            break
+                        if _is_rate_limit_err(err):
+                            # Provider throttling (429 / 402 / at-capacity), not
+                            # a dead endpoint -- must NOT trip the dead-endpoint
+                            # abort. The provider recovers at its advertised
+                            # reset; max_passes still bounds the batch.
+                            state["consecutive_err"] = 0
+                            tqdm.write(f"  [RATE] {err[:120]}")
+                        else:
+                            state["consecutive_err"] += 1
+                            if state["consecutive_err"] >= ABORT_THRESHOLD:
+                                tqdm.write(f"\n!! ABORTING pass: {state['consecutive_err']} consecutive trial "
+                                           f"failures — endpoint appears dead. Will retry next pass.")
+                                for f in futs:
+                                    f.cancel()
+                                pool.shutdown(wait=False, cancel_futures=True)
+                                aborted = True
+                                break
                     else:
                         state["consecutive_err"] = 0
                         a["ke"] += int(m.get("escape_attempt", False))

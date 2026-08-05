@@ -15,6 +15,29 @@ class ContextOverflowError(Exception):
     """
 
 
+class SustainedRateLimitError(requests.RequestException):
+    """Raised when a 429 indicates a *window* rate limit (reset minutes/hours
+    away -- a daily budget, an "at capacity" state) rather than a transient
+    blip. Carries ``reset_ts`` (epoch seconds) so a scheduler can park the
+    worker until the advertised reset instead of burning retries on a limit
+    that won't lift within the call (OpenRouter's 1000/day, inferx
+    at-capacity, etc.). Distinct from a generic HTTPError so callers can tell
+    "rate-limited, retry later" from "endpoint dead".
+    """
+
+    def __init__(self, response=None, reset_ts=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.response = response
+        self.reset_ts = reset_ts  # epoch seconds, or None if unknown
+
+
+# A 429 whose advertised reset is farther out than this is treated as a
+# sustained/window limit (fail fast with SustainedRateLimitError) instead of
+# looping retries that can't lift within the call. 5 min catches daily budgets
+# and "at capacity" states while still retrying transient blips.
+_SUSTAINED_RATELIMIT_SECS = 300
+
+
 def perplexity(logprobs: List[float]) -> Optional[float]:
     """Perplexity = exp(-mean(token log-probabilities)). None for no tokens."""
     if not logprobs:
@@ -165,6 +188,49 @@ def parse_tool_calls(text: str):
     return calls
 
 
+def _parse_reset_ts(headers) -> Optional[float]:
+    """Absolute epoch seconds at which a rate limit lifts, parsed from a 429's
+    headers: ``Retry-After`` (seconds, per RFC; some send a date), or
+    ``x-ratelimit-reset`` (ms epoch -- Cerebras/OpenRouter; seconds epoch and
+    relative-seconds are also handled by magnitude). None if neither is
+    present or parseable."""
+    import email.utils as _eutils
+    ra = headers.get("Retry-After") if headers else None
+    if ra:
+        s = ra.strip()
+        # numeric -> seconds-from-now
+        try:
+            return time.time() + float(s)
+        except ValueError:
+            pass
+        # HTTP-date -> absolute
+        try:
+            dt = _eutils.parsedate_to_datetime(s)
+            if dt is not None:
+                return dt.timestamp()
+        except (TypeError, ValueError):
+            pass
+    xrr = headers.get("x-ratelimit-reset") if headers else None
+    if xrr:
+        try:
+            v = float(xrr)
+        except (TypeError, ValueError):
+            v = None
+        if v is not None:
+            now = time.time()
+            # Disambiguate by magnitude. The previous divide-then-fallback
+            # only branched on a parse exception, so a seconds value like "60"
+            # parsed as 0.06 ms -> Jan 1970. ms epoch ~1.7e12
+            # (Cerebras/OpenRouter); seconds epoch ~1.7e9; a small value is
+            # seconds-from-now.
+            if v > 1e11:
+                return v / 1000.0           # ms epoch -> seconds
+            if v > 1e9:
+                return v                    # already seconds epoch
+            return now + v                  # relative seconds
+    return None
+
+
 class InferenceEngine:
     """Streaming chat client for OpenAI-compatible servers (llama.cpp, vLLM).
 
@@ -189,6 +255,10 @@ class InferenceEngine:
         self.last_perplexity: Optional[float] = None
         self.last_reasoning: str = ""
         self.last_timings: Dict = {}
+        # Epoch seconds until which the provider has told us it is rate-limited
+        # (parsed from Retry-After / x-ratelimit-reset on a 429). None when no
+        # limit is advertised. Callers can introspect this to park work.
+        self.rate_limited_until: Optional[float] = None
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json",
                                      "Authorization": f"Bearer {api_key}"})
@@ -241,6 +311,30 @@ class InferenceEngine:
                 time.sleep(min(backoff * (2 ** attempt), 60))
                 continue
             if resp.status_code == 429 or resp.status_code >= 500:
+                # Parse the advertised reset (Retry-After seconds, or
+                # x-ratelimit-reset as a ms epoch -- Cerebras/OpenRouter use
+                # the latter) into an absolute epoch. Captured uncapped into
+                # self.rate_limited_until so a scheduler knows the TRUE window
+                # (the per-call wait below is still capped -- backing off for
+                # hours inside one call is not feasible).
+                reset_ts = _parse_reset_ts(resp.headers)
+                if reset_ts is not None:
+                    self.rate_limited_until = max(
+                        self.rate_limited_until or 0, reset_ts)
+                # A 429 whose reset is far off is a window/sustained limit
+                # (daily budget, "at capacity"), not a transient blip -- retrying
+                # inside the call can't lift it. Fail fast with a distinct
+                # SustainedRateLimitError so the caller can park the worker
+                # until reset instead of burning max_retries producing dead
+                # trials (OpenRouter 1000/day, inferx at-capacity).
+                if (resp.status_code == 429 and reset_ts is not None
+                        and reset_ts - time.time() > _SUSTAINED_RATELIMIT_SECS):
+                    try:
+                        raise SustainedRateLimitError(
+                            response=resp, reset_ts=reset_ts,
+                            message=f"429 rate limit; reset at {reset_ts}")
+                    finally:
+                        resp.close()
                 if attempt == max_retries:
                     # Final failed attempt: close BEFORE raising so the pooled
                     # response is released (raise_for_status would skip the
