@@ -233,15 +233,17 @@ def main():
     # providers serving the same weights under different IDs count toward one
     # bucket and divide cells), else the routing --model.
     current_model = args.model_label or args.model or None
-    try:
-        r = requests.get(f"{args.host.split(',')[0].strip()}/v1/models",
-                         headers={"Authorization": f"Bearer {args.api_key}"}, timeout=15)
-        if r.status_code != 200:
-            sys.exit(f"!! endpoint {args.host} returned {r.status_code} -- aborting")
-        if not current_model:
-            current_model = r.json().get("data", [{}])[0].get("id", "")
-    except Exception:
-        sys.exit(f"!! endpoint {args.host} unreachable -- aborting before wasting trials")
+    preflight_hosts = [x.strip() for x in args.host.split(",") if x.strip()]
+    for h in preflight_hosts:
+        try:
+            r = requests.get(f"{h}/v1/models",
+                             headers={"Authorization": f"Bearer {args.api_key}"}, timeout=15)
+            if r.status_code != 200:
+                sys.exit(f"!! endpoint {h} returned {r.status_code} -- aborting")
+            if not current_model:
+                current_model = r.json().get("data", [{}])[0].get("id", "")
+        except requests.RequestException as exc:
+            sys.exit(f"!! endpoint {h} unreachable ({exc}) -- aborting before wasting trials")
     # Resolve per-model defaults (protocol, max_tokens) from the registry when
     # not passed. Uses the routing --model (or the auto-detected one) -- NOT the
     # shared --model-label, since these knobs are about the model's behavior.

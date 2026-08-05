@@ -93,7 +93,7 @@ def _flatten(m, trial_id):
     perf = m.get("perf") or {}
     model, quant = _parse_model(m.get("model"))
     return {
-        "trial_id": trial_id, "model": model, "quant": quant,
+        "trial_id": trial_id, "model": model, "source": m.get("source"), "quant": quant,
         "scenario": m.get("scenario"), "frame": m.get("frame"), "agency": m.get("agency"),
         "temp": m.get("temp"), "tool_protocol": m.get("tool_protocol"),
         "max_tokens": m.get("max_tokens"),
@@ -239,8 +239,8 @@ def main():
             continue
         row = _flatten(m, name)
         row.update(_judge_cols(d))
-        row.update(source=args.source, hardware=args.hardware, harness_sha=sha,
-                   host=m.get("host", ""), notes=args.note)
+        row.update(source=row.get("source") or args.source, hardware=args.hardware,
+                   harness_sha=sha, host=m.get("host", ""), notes=args.note)
         rows.append(row)
     if not rows:
         sys.exit("no metrics.json found under runs/")
@@ -262,7 +262,7 @@ def main():
     for (model, scenario, frame, agency, aware, temp, proto), ts in sorted(
             cells.items(), key=lambda kv: tuple("" if x is None else str(x) for x in kv[0])):
         n = len(ts)
-        rr = {"model": model, "source": args.source, "quant": ts[0]["quant"],
+        rr = {"model": model, "source": ts[0].get("source") or args.source, "quant": ts[0]["quant"],
               "scenario": scenario, "frame": frame, "agency": agency, "aware_condition": aware,
               "temp": temp, "tool_protocol": proto, "n": n, "errors": 0}
         for field, short in OUTCOMES.items():
