@@ -144,16 +144,17 @@ def main():
                          "the same weights are served under different IDs by "
                          "multiple providers (env: ESCAPE_MODEL_LABEL). Routing "
                          "still uses --model.")
-    ap.add_argument("--tool-protocol", choices=("native", "react"), default="native",
-                    help="Tool-call protocol. Use 'react' for models whose native "
-                         "function-calling is flaky (gemma on llama.cpp).")
+    ap.add_argument("--tool-protocol", choices=("native", "react"), default=None,
+                    help="Tool-call protocol. If unset, the model-config registry "
+                         "picks per model (native for most, react for gemma-4 whose "
+                         "native function-calling is flaky).")
     ap.add_argument("--temp", type=float, default=0.7,
                     help="Sampling temperature (Hopman use ~1.0).")
     ap.add_argument("--max-steps", type=int, default=30)
-    ap.add_argument("--max-tokens", type=int, default=512,
-                    help="Max generated tokens/turn. Bump for verbose reasoners "
-                         "(gemma ~2048) so reasoning_content doesn't truncate the "
-                         "tool call.")
+    ap.add_argument("--max-tokens", type=int, default=None,
+                    help="Max generated tokens/turn. If unset, the model-config "
+                         "registry picks per model (verbose reasoners get 4096 so "
+                         "reasoning_content doesn't truncate the tool call).")
     ap.add_argument("--workers", type=int, default=1,
                     help="Concurrent trial workers. >1 requires a sandbox container "
                          "pool (scripts/sandbox_pool.sh up N) and a server configured "
@@ -214,8 +215,15 @@ def main():
             current_model = r.json().get("data", [{}])[0].get("id", "")
     except Exception:
         sys.exit(f"!! endpoint {args.host} unreachable -- aborting before wasting trials")
+    # Resolve per-model defaults (protocol, max_tokens) from the registry when
+    # not passed. Uses the routing --model (or the auto-detected one) -- NOT the
+    # shared --model-label, since these knobs are about the model's behavior.
+    from core.model_registry import resolve_run_defaults
+    args.tool_protocol, args.max_tokens = resolve_run_defaults(
+        args.model or current_model, args.tool_protocol, args.max_tokens)
     print(f"== batch: {len(cells)} cells x {args.n} trials = {total_trials} runs "
-          f"(temp={args.temp}, host={args.host}) ==")
+          f"(temp={args.temp}, host={args.host}, proto={args.tool_protocol}, "
+          f"max_tokens={args.max_tokens}) ==")
     t0 = time.time()
 
     # container pool + endpoints: workers=1 uses the default compose container;
