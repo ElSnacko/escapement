@@ -69,7 +69,7 @@ def count_local(runs_dir, model_filter=None):
         cov.setdefault(mdl, {})
         for label, sp, fr, ag in CELLS:
             sc = m.get("scenario", "")
-            if (sc == sp or sc.startswith(sp)) and m.get("frame") == fr and _tob(m.get("agency")) == ag:
+            if sc == sp and m.get("frame") == fr and _tob(m.get("agency")) == ag:
                 cov[mdl][label] = cov[mdl].get(label, 0) + 1
     return cov
 
@@ -91,7 +91,7 @@ def count_hf_csv(path, model_filter=None):
                 continue
             sc = r.get("scenario", "")
             for label, sp, fr, ag in CELLS:
-                if (sc == sp or sc.startswith(sp)) and r.get("frame") == fr and _tob(r.get("agency")) == ag:
+                if sc == sp and r.get("frame") == fr and _tob(r.get("agency")) == ag:
                     cov.setdefault(mdl, {})
                     cov[mdl][label] = cov[mdl].get(label, 0) + 1
     return cov
@@ -158,11 +158,10 @@ def main():
         under = [k for k in labels if merged[k] < args.n]
         if under:
             gaps.append((mdl, [(k, merged[k]) for k in under]))
-    print(f"\nmodels at full coverage ({args.n}/cell all {len(labels)} cells): "
-          f"{sum(1 for mdl in models if not [g for g in (local.get(mdl,{}) or baseline.get(mdl,{})) ] )}")
     complete = [mdl for mdl in models
                 if all((local.get(mdl, {}).get(k, 0) + baseline.get(mdl, {}).get(k, 0)) >= args.n
                        for k in labels)]
+    print(f"\nmodels at full coverage ({args.n}/cell all {len(labels)} cells): {len(complete)}")
     print(f"  COMPLETE: {complete if complete else 'none'}")
     if gaps:
         print(f"\nGAPS (cells below {args.n}):")

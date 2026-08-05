@@ -149,17 +149,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def parse_args(argv=None) -> argparse.Namespace:
     args = build_arg_parser().parse_args(argv)
     # API-key safety: a real secret passed via --api-key is visible in `ps` /
-    # shell history to anyone on the host. Prefer the ESCAPE_API_KEY env var
-    # (the default source). Warn loudly when argv carries something that looks
-    # like a live key. (Resolved too late to redact in argv -- the warning is
-    # the fix; move the key to env.)
+    # shell history to anyone on the host, and --api-key OVERRIDES
+    # ESCAPE_API_KEY (it is the argparse default source), so warn whenever argv
+    # carries what looks like a live key -- even if the env var is also set.
+    # (Resolved too late to redact in argv -- the warning is the fix; move the
+    # key to env.)
     import sys as _sys
     k = args.api_key or ""
     looks_secret = (k not in ("", "not-needed")
                     and len(k) >= 16
                     and any(c in k for c in ("sk-", "csk-", "gsk_", "hf_",
-                                              "sk_or", "Bearer"))
-                    and not _env("ESCAPE_API_KEY"))
+                                              "sk_or", "Bearer")))
     if looks_secret:
         _sys.stderr.write(
             "!! WARNING: --api-key carries what looks like a real secret; it is "

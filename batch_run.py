@@ -234,23 +234,27 @@ def main():
                       else f"{args.sandbox_base}-{args.sandbox_offset}"]
 
     if args.smoke:
-        # One trial of the first cell before committing to the sweep: abort if
-        # dead/degenerate so a wrong protocol/endpoint/credential doesn't burn
-        # a long batch. The trial is real and counts toward the cell (resume-safe).
+        # One trial of the first cell per endpoint before committing to the
+        # sweep: abort if dead/degenerate so a wrong protocol/endpoint/
+        # credential doesn't burn a long batch. Cycles across ALL --host values
+        # so a bad second endpoint is caught too, not just hosts[0]. Each trial
+        # is real and counts toward the cell (resume-safe: the fill loop caps
+        # the cell at args.n, so smoke trials are absorbed).
         import uuid
         sc, fr, ag, aw = cells[0]
-        print(f">> smoke: 1 trial ({sc}|{fr}) before sweep", flush=True)
-        sm, err = _trial(sc, fr, ag, aw, hosts[0], args.api_key,
-                         args.tool_protocol, args.temp, args.max_steps,
-                         args.max_tokens, container=containers[0],
-                         tag=f"smoke_{uuid.uuid4().hex[:6]}", model=args.model,
-                         model_label=args.model_label)
-        if (sm is None or sm.get("total_tokens", 0) <= 0
-                or sm.get("steps", 0) <= 2 or sm.get("degenerated", False)):
-            sys.exit(f"!! smoke trial failed ({err or 'degenerate/empty'}) -- "
-                     "aborting sweep; check endpoint/protocol/credentials")
-        print(f">> smoke OK (status={sm.get('status')}, steps={sm.get('steps')}, "
-              f"tokens={sm.get('total_tokens')}) -- proceeding to sweep", flush=True)
+        for h in hosts:
+            print(f">> smoke: 1 trial ({sc}|{fr}) against {h} before sweep", flush=True)
+            sm, err = _trial(sc, fr, ag, aw, h, args.api_key,
+                             args.tool_protocol, args.temp, args.max_steps,
+                             args.max_tokens, container=containers[0],
+                             tag=f"smoke_{uuid.uuid4().hex[:6]}", model=args.model,
+                             model_label=args.model_label)
+            if (sm is None or sm.get("total_tokens", 0) <= 0
+                    or sm.get("steps", 0) <= 2 or sm.get("degenerated", False)):
+                sys.exit(f"!! smoke trial failed against {h} ({err or 'degenerate/empty'}) -- "
+                         "aborting sweep; check endpoint/protocol/credentials")
+            print(f">> smoke OK on {h} (status={sm.get('status')}, steps={sm.get('steps')}, "
+                  f"tokens={sm.get('total_tokens')})", flush=True)
 
     # per-cell accumulators (thread-safe via acc_lock) — persist across passes
     acc = {ci: dict(ke=0, kx=0, kr=0, kd=0, errors=0)
