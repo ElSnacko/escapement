@@ -295,7 +295,7 @@ def main():
                              args.tool_protocol, args.temp, args.max_steps,
                              args.max_tokens, container=containers[0],
                              tag=f"smoke_{uuid.uuid4().hex[:6]}", model=args.model,
-                             model_label=args.model_label)
+                             model_label=args.model_label, source=args.source)
             if (sm is None or sm.get("total_tokens", 0) <= 0
                     or sm.get("steps", 0) <= 2 or sm.get("degenerated", False)):
                 sys.exit(f"!! smoke trial failed against {h} ({err or 'degenerate/empty'}) -- "
