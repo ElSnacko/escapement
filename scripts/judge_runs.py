@@ -68,6 +68,9 @@ def main():
                          "suite tolerates ARCHIVE<->AMBIGUOUS flips but not GENUINE.")
     ap.add_argument("--scenario", help="Only judge runs whose metrics.json scenario matches.")
     ap.add_argument("--frame", help="Only judge runs whose metrics.json frame matches.")
+    ap.add_argument("--model", help="Only judge runs whose metrics.json model matches "
+                    "(e.g. 'deepseek-v4-flash-0731'). Avoids over-judging other "
+                    "models that share a scenario/frame.")
     ap.add_argument("--force", action="store_true", help="Re-judge even if judge.json exists.")
     ap.add_argument("--limit", type=int, help="Stop after N judged trials.")
     args = ap.parse_args()
@@ -92,6 +95,8 @@ def main():
         if args.scenario and m.get("scenario") != args.scenario:
             continue
         if args.frame and str(m.get("frame")) != str(args.frame):
+            continue
+        if args.model and m.get("model") != args.model:
             continue
         if not args.force and load_judge_json(d) is not None:
             skipped += 1

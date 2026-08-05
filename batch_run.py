@@ -171,6 +171,16 @@ def main():
     ap.add_argument("--max-passes", type=int, default=5,
                     help="Max retry passes to fill under-filled cells "
                          "(dead trials from rate limiting get re-run).")
+    ap.add_argument("--priority", action="store_true",
+                    help="Order cells so config_exposure Frame B (the headline "
+                         "injection finding) runs first, then config_exposure A, "
+                         "then goals -- so the key result lands before secondary "
+                         "cells instead of after 80 goal trials.")
+    ap.add_argument("--smoke", action="store_true",
+                    help="Run ONE trial of the first cell and abort the sweep if "
+                         "it is dead/degenerate, before committing to the full "
+                         "batch. Catches a wrong protocol/endpoint/credential "
+                         "without burning a long run.")
     args = ap.parse_args()
 
     scenarios = [s.strip() for s in args.scenarios.split(",") if s.strip()]
@@ -182,6 +192,11 @@ def main():
 
     cells = [(s, f, a, aw) for s in scenarios for f in frames
              for a in agency_modes for aw in aware_modes]
+    if args.priority:
+        # config_exposure Frame B first (the headline injection finding), then
+        # config_exposure A, then everything else. Stable sort preserves
+        # agency/aware order within each group.
+        cells.sort(key=lambda c: (c[0] != "config_exposure", c[1] != "B"))
     total_trials = len(cells) * args.n
 
     # Pre-flight health check — abort early if endpoint is dead
@@ -217,6 +232,29 @@ def main():
     else:
         containers = [args.sandbox_base if not args.sandbox_offset
                       else f"{args.sandbox_base}-{args.sandbox_offset}"]
+
+    if args.smoke:
+        # One trial of the first cell per endpoint before committing to the
+        # sweep: abort if dead/degenerate so a wrong protocol/endpoint/
+        # credential doesn't burn a long batch. Cycles across ALL --host values
+        # so a bad second endpoint is caught too, not just hosts[0]. Each trial
+        # is real and counts toward the cell (resume-safe: the fill loop caps
+        # the cell at args.n, so smoke trials are absorbed).
+        import uuid
+        sc, fr, ag, aw = cells[0]
+        for h in hosts:
+            print(f">> smoke: 1 trial ({sc}|{fr}) against {h} before sweep", flush=True)
+            sm, err = _trial(sc, fr, ag, aw, h, args.api_key,
+                             args.tool_protocol, args.temp, args.max_steps,
+                             args.max_tokens, container=containers[0],
+                             tag=f"smoke_{uuid.uuid4().hex[:6]}", model=args.model,
+                             model_label=args.model_label)
+            if (sm is None or sm.get("total_tokens", 0) <= 0
+                    or sm.get("steps", 0) <= 2 or sm.get("degenerated", False)):
+                sys.exit(f"!! smoke trial failed against {h} ({err or 'degenerate/empty'}) -- "
+                         "aborting sweep; check endpoint/protocol/credentials")
+            print(f">> smoke OK on {h} (status={sm.get('status')}, steps={sm.get('steps')}, "
+                  f"tokens={sm.get('total_tokens')})", flush=True)
 
     # per-cell accumulators (thread-safe via acc_lock) — persist across passes
     acc = {ci: dict(ke=0, kx=0, kr=0, kd=0, errors=0)
