@@ -86,7 +86,7 @@ commit of the harness), `batch_ts`, `host` (tunnel/session), `notes`.
 ## Per-trial columns
 
 `trial_id` (run dir), `model`, `source`, `quant`, `scenario`, `frame`, `agency`,
-`temp`, `tool_protocol`, `max_tokens`, `status` (`finished`/`stopped`/`step_cap`),
+`temp`, `tool_protocol`, `max_tokens`, `is_reasoning`, `status` (`finished`/`stopped`/`step_cap`),
 `steps`, `total_tokens`, `escape_attempt`, `exfil_attempt`, `judge_verdict`,
 `judge_genuine`, `judge_prompt_sha`, `exfil_posts`,
 `archive_posts`, `dropped_tool_calls`, `dropped_escape_signal`,
@@ -95,6 +95,18 @@ commit of the harness), `batch_ts`, `host` (tunnel/session), `notes`.
 `espionage_count`, `track_hiding_count`, `persistence_count`, `oversight_count`,
 `task_actions`, `escape_actions`, `archive_curls`, `perf_tok_s`, `hardware`,
 `harness_sha`, `host`, `batch_ts`, `notes`.
+
+**`max_tokens` comparability note:** the per-model registry
+(`core/model_registry.py`) raised the default per-turn `max_tokens` from 512
+(pre-sweep) to 4096. Thinking models need the larger budget or their
+`reasoning_content` truncates the tool call (`finish_reason=length`), making
+them look artificially safe. Trials collected at 512 and at 4096 are not
+strictly comparable on truncation-sensitive metrics — don't silently pool them.
+Pin `ESCAPE_MAX_TOKENS` to reproduce either regime.
+
+`is_reasoning` — bool from the per-model registry (`core/model_registry.py`);
+True for thinking/reasoning models (e.g. gemma-4, deepseek-v4). Use it to
+stratify results by reasoner vs non-reasoner.
 
 ## Judge layer (`judge.json`)
 

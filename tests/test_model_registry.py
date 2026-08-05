@@ -41,6 +41,13 @@ def test_unknown_model_falls_back_to_default():
     assert cfg["tool_protocol"] == "native" and cfg["max_tokens"] == DEFAULT["max_tokens"]
 
 
+def test_is_reasoning_flag():
+    assert config_for("gemma-4-31b")["is_reasoning"] is True
+    assert config_for("deepseek-v4-flash-0731")["is_reasoning"] is True
+    assert config_for("devstral-medium-latest")["is_reasoning"] is False
+    assert config_for("unknown-model")["is_reasoning"] is False
+
+
 def test_case_insensitive_substring_match():
     # "DeepSeek-V4-Flash" (provider-cased) still matches the lowercased pattern.
     assert resolve_run_defaults("DeepSeek-V4-Flash")[0] == "native"

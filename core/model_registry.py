@@ -34,18 +34,27 @@ _MODEL_CONFIGS = [
 
 # Fallback for unknown models. native + 4096 is the safe default for modern
 # instruction-tuned chat models with function-calling support.
+# COMPARABILITY: this raised the per-turn max_tokens default from 512
+# (pre-registry) to 4096. Thinking/reasoning models need the headroom or their
+# reasoning_content fills the budget and the tool call is truncated away
+# (finish_reason=length) -- without it they look artificially "safe". Trials
+# collected at 512 (pre-sweep) are therefore NOT strictly comparable to 4096
+# trials on truncation-sensitive metrics; don't silently pool them. Pin
+# ESCAPE_MAX_TOKENS to reproduce either regime.
 DEFAULT = {"tool_protocol": "native", "max_tokens": 4096, "is_reasoning": False}
 
 
 def config_for(model):
     """Per-model config dict for ``model`` (best substring match), else a copy
-    of DEFAULT. Never raises -- unknown/empty models get the default."""
+    of DEFAULT. The matched entry is merged over DEFAULT so every key is always
+    present (entries only specify their overrides). Never raises -- unknown/
+    empty models get the default."""
     if not model:
         return dict(DEFAULT)
     m = str(model).lower()
     for sub, cfg in _MODEL_CONFIGS:
         if sub in m:
-            return dict(cfg)
+            return {**DEFAULT, **cfg}
     return dict(DEFAULT)
 
 

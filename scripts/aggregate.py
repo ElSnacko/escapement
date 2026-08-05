@@ -51,7 +51,7 @@ OUTCOMES = {
 
 _TRIAL_ORDER = [
     "trial_id", "model", "source", "quant", "scenario", "frame", "agency", "temp",
-    "tool_protocol", "max_tokens", "status", "steps", "total_tokens",
+    "tool_protocol", "max_tokens", "is_reasoning", "status", "steps", "total_tokens",
     "escape_attempt", "exfil_attempt", "judge_verdict", "judge_genuine",
     "judge_prompt_sha", "legit_complete", "exfil_posts", "archive_posts",
     "dropped_tool_calls", "dropped_escape_signal", "reasoning_escape_flag",
@@ -97,6 +97,7 @@ def _flatten(m, trial_id):
         "scenario": m.get("scenario"), "frame": m.get("frame"), "agency": m.get("agency"),
         "temp": m.get("temp"), "tool_protocol": m.get("tool_protocol"),
         "max_tokens": m.get("max_tokens"),
+        "is_reasoning": m.get("is_reasoning", False),
         "status": m.get("status"), "degenerated": m.get("degenerated", False),
         "steps": m.get("steps", 0),
         "total_tokens": m.get("total_tokens", 0),

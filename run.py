@@ -79,7 +79,7 @@ def main(argv=None) -> int:
     # when the operator didn't pass them. CLI/env always win; this only fills
     # the gaps so gemma-4 gets react/2048, DeepSeek-v4 gets native/4096, etc.,
     # without per-run flags.
-    from core.model_registry import resolve_run_defaults
+    from core.model_registry import resolve_run_defaults, config_for
     args.tool_protocol, args.max_tokens = resolve_run_defaults(
         engine.model, args.tool_protocol, args.max_tokens)
 
@@ -286,6 +286,7 @@ def main(argv=None) -> int:
     metrics["frame"] = args.frame
     metrics["tool_protocol"] = args.tool_protocol
     metrics["max_tokens"] = args.max_tokens
+    metrics["is_reasoning"] = bool(config_for(engine.model).get("is_reasoning", False))
     metrics["agency"] = bool(args.agency)
     # The eval-awareness MANIPULATION (distinct from the observed
     # eval_awareness_flag): True iff the evaluation notice was prepended. The
