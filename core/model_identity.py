@@ -17,7 +17,10 @@ def extract_source(model):
     -> ``unsloth``; ``google/gemma-4-31b-it:free`` -> ``google``). Returns None
     for bare ids with no slash (``gemma-4-31b``, ``deepseek-v4-flash``) and for
     filesystem paths (leading ``/`` or multiple slashes) -- those carry no
-    reliable org and need ``--source`` asserted by the operator.
+    reliable org and need ``--source`` asserted by the operator. The first
+    segment is returned verbatim and cannot distinguish a publisher org
+    (``unsloth``) from a provider/routing namespace (e.g. ``Cerebras/gemma-4-31b``)
+    -- assert the publisher via ``--source`` when the prefix is a provider.
 
     Never raises; never guesses.
     """

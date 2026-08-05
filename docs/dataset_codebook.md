@@ -101,8 +101,10 @@ routing id the provider expected (for local gguf it carries the quant method,
 e.g. `Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf`); `source` is the publisher/fine-tuner
 org (`unsloth`, `google`, `deepseek`, `nvidia`...) — auto-extracted from an
 `org/name` id, or set with `--source`/`ESCAPE_SOURCE`, and left blank when
-genuinely unknown (never guessed); `quant` is the quantization label. `model`
-can be overridden by `--model-label` (a shared canonical name when the same
+genuinely unknown (never guessed). There is no separate `quant` field: a bare
+quantization label without the quantizer and method is a false-comparability
+trap, and for local gguf the method is already carried in the `model` routing
+id above. `model` can be overridden by `--model-label` (a shared canonical name when the same
 weights are served under different ids by multiple providers) — see
 `docs/usage.md` and `core/model_identity.py`.
 
