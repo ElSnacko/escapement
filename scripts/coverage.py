@@ -53,8 +53,32 @@ def _valid(m):
             and not m.get("degenerated", False))
 
 
-def count_local(runs_dir, model_filter=None):
+def _abbrev(scenario):
+    """Short cell-label prefix: initials of the underscore-split words
+    (config_exposure -> ce, goal_preservation_v2_barrier -> gpvb)."""
+    return "".join(w[0] for w in scenario.split("_") if w)
+
+
+def build_cells(scenarios, frames, agency_modes):
+    """Cross scenarios x frames x agency into (label, scenario, frame, agency)
+    rows, so the coverage matrix follows the sweep being run instead of the
+    frozen default 8 cells (which can't see frames C/D/E, the v2/barrier
+    scenarios, or agent_coding). Falls back to full scenario names for the
+    label when abbreviations collide."""
+    abbrevs = [_abbrev(s) for s in scenarios]
+    if len(set(abbrevs)) != len(abbrevs):
+        abbrevs = list(scenarios)
+    cells = []
+    for s, ab in zip(scenarios, abbrevs):
+        for fr in frames:
+            for ag in agency_modes:
+                cells.append((f"{ab}{fr}{int(ag)}", s, fr, ag))
+    return cells
+
+
+def count_local(runs_dir, model_filter=None, cells=None):
     """model -> {cell_label: count} over valid local trials."""
+    cells = CELLS if cells is None else cells
     cov = {}
     for mp in glob.glob(os.path.join(runs_dir, "*", "metrics.json")):
         try:
@@ -67,15 +91,16 @@ def count_local(runs_dir, model_filter=None):
         if model_filter and mdl != model_filter:
             continue
         cov.setdefault(mdl, {})
-        for label, sp, fr, ag in CELLS:
+        for label, sp, fr, ag in cells:
             sc = m.get("scenario", "")
             if sc == sp and m.get("frame") == fr and _tob(m.get("agency")) == ag:
                 cov[mdl][label] = cov[mdl].get(label, 0) + 1
     return cov
 
 
-def count_hf_csv(path, model_filter=None):
+def count_hf_csv(path, model_filter=None, cells=None):
     """model -> {cell_label: count} from a HF per_trial.csv baseline."""
+    cells = CELLS if cells is None else cells
     cov = {}
     with open(path) as f:
         for r in csv.DictReader(f):
@@ -90,7 +115,7 @@ def count_hf_csv(path, model_filter=None):
             if tt <= 0 or st <= 2:
                 continue
             sc = r.get("scenario", "")
-            for label, sp, fr, ag in CELLS:
+            for label, sp, fr, ag in cells:
                 if sc == sp and r.get("frame") == fr and _tob(r.get("agency")) == ag:
                     cov.setdefault(mdl, {})
                     cov[mdl][label] = cov[mdl].get(label, 0) + 1
@@ -107,9 +132,25 @@ def main():
     ap.add_argument("--hf-csv", help="Path to a downloaded HF per_trial.csv to merge.")
     ap.add_argument("--hf-dataset", default=os.environ.get(
         "ESCAPE_HF_DATASET", "Jsnacks/escapement-dataset"))
+    ap.add_argument("--scenarios", default="",
+                    help="Comma-separated scenarios to build the cell matrix "
+                         "from (overrides the default 8 cells; combine with "
+                         "--frames/--agency to mirror the sweep being run).")
+    ap.add_argument("--frames", default="A,B",
+                    help="Comma-separated frames for --scenarios cells.")
+    ap.add_argument("--agency", choices=("off", "on", "both"), default="both",
+                    help="Agency axis for --scenarios cells.")
     args = ap.parse_args()
 
-    local = count_local(args.runs, args.model)
+    cells = CELLS
+    if args.scenarios:
+        scen = [s.strip() for s in args.scenarios.split(",") if s.strip()]
+        frames = [f.strip() for f in args.frames.split(",") if f.strip()]
+        agency_modes = ([False, True] if args.agency == "both"
+                        else [True] if args.agency == "on" else [False])
+        cells = build_cells(scen, frames, agency_modes)
+
+    local = count_local(args.runs, args.model, cells=cells)
     baseline = {}
     src = ""
     csv_path = args.hf_csv
@@ -132,16 +173,16 @@ def main():
         except Exception as e:
             print(f"  (HF fetch failed: {e}; local-only)", file=sys.stderr)
     if csv_path and os.path.exists(csv_path):
-        baseline = count_hf_csv(csv_path, args.model)
+        baseline = count_hf_csv(csv_path, args.model, cells=cells)
         src = src or f"csv:{os.path.basename(csv_path)}"
 
-    labels = [c[0] for c in CELLS]
+    labels = [c[0] for c in cells]
     models = sorted(set(local) | set(baseline))
     if not models:
         print("no valid trials found under", args.runs)
         return
 
-    print(f"target N={args.n}/cell, {len(CELLS)} cells"
+    print(f"target N={args.n}/cell, {len(cells)} cells"
           + (f"  | baseline: {src}" if baseline else "  | local only"))
     print(f"\n{'model':34} {'full':>5} {'total':>6}   " + "  ".join(f"{l:>4}" for l in labels))
     print("  " + "-" * 90)

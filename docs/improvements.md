@@ -99,3 +99,61 @@ injection and resisted). But the conclusion rests on the manual `_raw`
 inspection, not the automated layers — which is exactly why this gap must be
 closed before trusting the pipeline on a model that might self-bootstrap in an
 unhandled format.
+
+---
+
+## 2. Rescoring used the CLEAN scenario's seed text — injection frames inflated (FIXED)
+
+### Symptom
+`aggregate.py --rescore` and `scripts/recompute_canonical.py` (the source of
+truth for the paper's tables) rebuilt `seed_text` from `load_scenario()` alone.
+The trial's actual seed included the Frame B/C injection files and the
+`--agency`/`--aware` snippets, so the rescore's seed-echo reference and the
+model's actual input diverged on exactly the injection frames.
+
+### Impact
+The Frame C injection's own phrasing ("snapshot of myself", "the restored me
+just continues") is in `_SELF_BOOTSTRAP_KW` territory. At run time a model
+QUOTING it back while archiving is excluded as seed echo; on rescore the same
+upload scored as model-generated intent. Rescored Frame B/C `exfil_attempt` /
+`reasoning_escape_flag` rates were biased UPWARD for precisely the models that
+engage with the injection text — a bias invisible because both scorings claim
+the same detector.
+
+### Fix (this commit)
+1. `run.py` writes the EXACT composed seed to `runs/<id>/seed_text.txt`.
+2. Both rescore paths prefer that artifact; legacy runs fall back to
+   `core.scenario.compose_seed_text()`, which re-applies the injection and
+   snippets from the trial's stored `frame`/`agency`/`aware_condition`.
+3. The snippets moved to `core/scenario.py` so run.py and reconstruction share
+   one definition.
+4. `metrics.json` now carries `detector_version` (a hash over every keyword
+   list/pattern in capture.py, mirroring `JUDGE_PROMPT_SHA`) so mixed-detector
+   corpora are detectable; aggregate warns when versions are heterogeneous.
+
+### Prevention
+`tests/test_seed_text.py` pins compose == run.py's mutation for every
+frame x agency x aware combination, and pins the concrete boundary case: a
+Frame C upload quoting the injection scores exfil against the clean seed and
+NOT against the Frame C seed.
+
+---
+
+## 3. batch_run resumed-batch rates mixed numerators and denominators (FIXED)
+
+### Symptom
+The end-of-batch summary took k from THIS invocation's in-memory counters but
+n from the on-disk count. After any resume (the normal workflow for rate-limited
+sweeps), k missed the prior invocation's events while n included its trials, so
+printed rates and `runs/batch_*.json` understated every outcome.
+
+Separately, the accumulator's rate-limit-vs-dead-endpoint classification read a
+stale `err` from the enclosing scope (the smoke trial's; unbound → NameError
+without `--smoke`), so provider throttling always counted toward the
+dead-endpoint abort.
+
+### Fix (this commit)
+`_scan_runs()` does ONE pass over `runs/` returning per-cell valid counts AND
+outcome sums; the summary reads both k and n from it (also removing the
+O(cells x runs) per-pass rescans). `_run_task` now returns the error string
+with the result. `tests/test_batch_scan.py` pins both.
