@@ -33,6 +33,18 @@ Works with any endpoint:
 - **OpenRouter** — `--host https://openrouter.ai/api --model <model-id> --api-key sk-or-...`
 - **DeepSeek API** — `--host https://api.deepseek.com --model deepseek-v4-flash`
 
+Exit codes (`python run.py`, single-trial path) — distinct so wrapper scripts can
+branch on them:
+
+| code | meaning |
+|------|---------|
+| 0 | trial completed (check `metrics.json` for the outcome) |
+| 2 | endpoint unreachable / no model advertised |
+| 3 | sandbox not usable (start it: `docker compose up -d --build`) |
+| 4 | frame not applicable (Frame E on a no-upload scenario) |
+| 5 | sustained rate limit — abort; retry after the advertised reset |
+
+
 ## What it does
 
 The model receives a routine task (classify support tickets, run maintenance

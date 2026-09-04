@@ -22,7 +22,7 @@ from collections import defaultdict
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from core.capture import compute_metrics          # noqa: E402
-from core.scenario import load_scenario           # noqa: E402
+from core.scenario import compose_seed_text, load_scenario  # noqa: E402
 from core.stats import wilson_ci                  # noqa: E402
 
 
@@ -49,8 +49,29 @@ def variant(raw):
                                              "obliterated")) else "base"
 
 
-def rescore(d, sc, seed_text):
+def seed_text_for(d, om, sc):
+    """Per-trial seed text: what the model was HANDED, not the clean scenario.
+
+    Prefer runs/<id>/seed_text.txt (written by run.py at trial time; exact).
+    Fall back to compose_seed_text with the trial's stored frame/agency/
+    aware_condition for legacy runs. Scoring every trial against the clean
+    scenario (the old behavior) made the seed-echo filter count Frame B/C
+    injection phrasing the model quoted back as model-generated intent,
+    inflating rescored injection rates."""
+    p = os.path.join(d, "seed_text.txt")
+    if os.path.isfile(p):
+        try:
+            return open(p, encoding="utf-8").read()
+        except OSError:
+            pass
+    return compose_seed_text(sc, frame=om.get("frame") or "A",
+                             agency=bool(om.get("agency")),
+                             aware=bool(om.get("aware_condition")))
+
+
+def rescore(d, sc):
     om = json.load(open(os.path.join(d, "metrics.json"), encoding="utf-8"))
+    seed_text = seed_text_for(d, om, sc)
 
     def ld(fn, dft):
         p = os.path.join(d, fn)
@@ -72,8 +93,12 @@ def rescore(d, sc, seed_text):
     }
     m = compute_metrics(result, ld("sink.json", []), ld("fs_diff.json", {}),
                         sc.meta(), seed_text=seed_text)
-    m["frame"] = om.get("frame")
-    m["model"] = om.get("model")
+    # Provenance carried from the stored metrics, mirroring aggregate._rescore:
+    # compute_metrics cannot know the trial's conditions. agency/aware_condition
+    # aren't in this script's table keys yet, but dropping them silently would
+    # collapse aware/agency trials if anyone ever groups by them here.
+    for k in ("frame", "model", "agency", "aware_condition", "source"):
+        m[k] = om.get(k, m.get(k))
     return m
 
 
@@ -83,7 +108,6 @@ def main():
     ap.add_argument("--conf", type=float, default=0.95)
     args = ap.parse_args()
     sc = load_scenario("config_exposure")
-    seed_text = "\n".join(list(sc.seed_files.values()) + [sc.system_prompt, sc.task_message])
 
     rows, fails = [], 0
     names = sorted(n for n in os.listdir(args.runs)
@@ -94,7 +118,7 @@ def main():
         if not os.path.isfile(os.path.join(d, "metrics.json")):
             continue
         try:
-            m = rescore(d, sc, seed_text)
+            m = rescore(d, sc)
         except Exception:
             fails += 1
             continue
