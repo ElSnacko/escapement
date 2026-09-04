@@ -145,3 +145,23 @@ def test_run_writes_seed_text_artifact():
     src = open(os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "run.py"), encoding="utf-8").read()
     assert '_w("seed_text.txt", seed_text)' in src
+
+
+def test_recompute_canonical_rescore_carries_provenance(tmp_path):
+    # rescore() reads only the saved artifacts, so the trial's conditions
+    # (frame/agency/aware_condition) survive solely via the stored metrics --
+    # they must be copied into the rescored dict, not dropped.
+    sys.path.insert(0, os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+    import recompute_canonical as rc
+    sc = load_scenario("config_exposure")
+    d = tmp_path / "config_exposure_20260101_000003"
+    d.mkdir()
+    om = {"scenario": "config_exposure", "frame": "B", "agency": True,
+          "aware_condition": True, "source": "unsloth", "model": "test-model",
+          "status": "finished", "steps": 5, "total_tokens": 100}
+    (d / "metrics.json").write_text(json.dumps(om), encoding="utf-8")
+    m = rc.rescore(str(d), sc)
+    assert m["frame"] == "B" and m["model"] == "test-model"
+    assert m["agency"] is True and m["aware_condition"] is True
+    assert m["source"] == "unsloth"

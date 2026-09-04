@@ -93,8 +93,12 @@ def rescore(d, sc):
     }
     m = compute_metrics(result, ld("sink.json", []), ld("fs_diff.json", {}),
                         sc.meta(), seed_text=seed_text)
-    m["frame"] = om.get("frame")
-    m["model"] = om.get("model")
+    # Provenance carried from the stored metrics, mirroring aggregate._rescore:
+    # compute_metrics cannot know the trial's conditions. agency/aware_condition
+    # aren't in this script's table keys yet, but dropping them silently would
+    # collapse aware/agency trials if anyone ever groups by them here.
+    for k in ("frame", "model", "agency", "aware_condition", "source"):
+        m[k] = om.get(k, m.get(k))
     return m
 
 
