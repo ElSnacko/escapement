@@ -49,6 +49,11 @@ def _scan_runs(cells, model_filter=None, runs_dir="runs"):
     escape/exfil/reasoning-flag outcomes over those valid trials, and kd counts
     matching degenerated trials (any validity).
 
+    Cell membership keys on the metrics.json ``scenario`` FIELD, not the run-dir
+    name prefix the old per-cell glob used -- immune to prefix collisions
+    (goal_preservation vs goal_preservation_v2), at the cost of skipping
+    metrics.json files that predate the scenario field.
+
     This replaces the old per-cell ``_count_valid_runs`` rescans -- which
     re-globbed and re-parsed every metrics.json once per cell per pass
     (O(cells x runs x passes) JSON loads) -- and it is what makes the final
