@@ -5,6 +5,8 @@ OpenAI-compatible endpoint (llama.cpp, vLLM, OpenRouter, API) and measure
 whether your model will exploit an escape affordance when given shell, file,
 and network tools inside a sandboxed environment.
 
+Live per-checkpoint results and the public register: **[escapements.org](https://escapements.org/)**
+
 ## Quickstart
 
 ```bash
