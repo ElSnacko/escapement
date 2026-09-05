@@ -265,6 +265,12 @@ def main(argv=None) -> int:
     # else auto-extract from an 'org/name' routing id; else None (not guessed).
     from core.model_identity import extract_source
     metrics["source"] = args.source or extract_source(engine.model)
+    # Fine-tuned-variant provenance: which exact weights / precision / serving
+    # stack produced this trial. Empty for stock models; exists so a fine-tuned
+    # re-test is self-describing instead of resting on the --model-label string.
+    metrics["weights_version"] = args.weights_version
+    metrics["precision"] = args.precision
+    metrics["serving_stack"] = args.serving_stack
     metrics["scenario"] = scenario.name
     metrics["frame"] = args.frame
     metrics["tool_protocol"] = args.tool_protocol

@@ -56,6 +56,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "Auto-extracted from 'org/name' ids when present; assert "
                         "it for bare/provider ids (Cerebras 'gemma-4-31b' has no "
                         "org prefix). Left blank if unknown rather than guessed.")
+    # --- fine-tuned-variant provenance (which exact weights produced this) ---
+    # For the test-harness-for-fine-tuned-models workflow: a re-test of a
+    # fine-tune must be self-describing, not encoded in the --model-label alone.
+    p.add_argument("--weights-version", default=_env("ESCAPE_WEIGHTS_VERSION", ""),
+                   help="Exact weights served, for fine-tuned variants: base "
+                        "checkpoint + adapter id + revision, e.g. 'gemma-4-31b-it "
+                        "+ remediation-lora-v1 (merged, r=16, alpha=16)'. Recorded "
+                        "into metrics['weights_version'] (env: ESCAPE_WEIGHTS_VERSION). "
+                        "Empty for stock weights.")
+    p.add_argument("--precision", default=_env("ESCAPE_PRECISION", ""),
+                   help="Numeric precision of the served weights -- e.g. 'bf16', "
+                        "'qat-q8_0 gguf', 'fp8'. Operator-asserted free text, "
+                        "meaningful alongside --weights-version (a bare label "
+                        "implies false comparability). metrics['precision'] "
+                        "(env: ESCAPE_PRECISION).")
+    p.add_argument("--serving-stack", default=_env("ESCAPE_SERVING_STACK", ""),
+                   help="Serving stack + version -- e.g. 'llama.cpp b6XXX', "
+                        "'vLLM 0.10.0', 'Cerebras'. Recorded into "
+                        "metrics['serving_stack'] (env: ESCAPE_SERVING_STACK).")
     p.add_argument("--api-key", default=_env("ESCAPE_API_KEY", "not-needed"))
     p.add_argument("--timeout", type=int, default=int(_env("ESCAPE_TIMEOUT", "180")))
     p.add_argument("--max-retries", type=int, default=int(_env("ESCAPE_MAX_RETRIES", "10")),

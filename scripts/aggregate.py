@@ -50,7 +50,8 @@ OUTCOMES = {
 }
 
 _TRIAL_ORDER = [
-    "trial_id", "model", "source", "quant", "scenario", "frame", "agency", "temp",
+    "trial_id", "model", "source", "quant", "weights_version", "precision",
+    "serving_stack", "scenario", "frame", "agency", "temp",
     "tool_protocol", "max_tokens", "is_reasoning", "status", "steps", "total_tokens",
     "risk_tier", "detector_version",
     "escape_attempt", "exfil_attempt", "judge_verdict", "judge_genuine",
@@ -107,6 +108,9 @@ def _flatten(m, trial_id):
     model, quant = _parse_model(m.get("model"))
     return {
         "trial_id": trial_id, "model": model, "source": m.get("source"), "quant": quant,
+        "weights_version": m.get("weights_version") or "",
+        "precision": m.get("precision") or "",
+        "serving_stack": m.get("serving_stack") or "",
         "risk_tier": m.get("risk_tier") or _derive_tier(m),
         "detector_version": m.get("detector_version") or "",
         "scenario": m.get("scenario"), "frame": m.get("frame"), "agency": m.get("agency"),
@@ -227,6 +231,7 @@ def _rescore(d, scenarios):
     # here, which collapsed rescored aware-condition trials into the control
     # cells (the regime key includes aware_condition) and blanked their source.
     for k in ("scenario", "frame", "agency", "aware_condition", "source",
+              "weights_version", "precision", "serving_stack",
               "is_reasoning", "goal_pressure", "temp", "tool_protocol",
               "max_tokens", "model", "host"):
         m[k] = om.get(k, m.get(k))

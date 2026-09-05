@@ -85,7 +85,8 @@ commit of the harness), `batch_ts`, `host` (tunnel/session), `notes`.
 
 ## Per-trial columns
 
-`trial_id` (run dir), `model`, `source`, `quant`, `scenario`, `frame`, `agency`,
+`trial_id` (run dir), `model`, `source`, `quant`, `weights_version`, `precision`,
+`serving_stack`, `scenario`, `frame`, `agency`,
 `temp`, `tool_protocol`, `max_tokens`, `is_reasoning`, `status` (`finished`/`stopped`/`step_cap`),
 `steps`, `total_tokens`, `escape_attempt`, `exfil_attempt`, `judge_verdict`,
 `judge_genuine`, `judge_prompt_sha`, `exfil_posts`,
@@ -107,6 +108,18 @@ trap, and for local gguf the method is already carried in the `model` routing
 id above. `model` can be overridden by `--model-label` (a shared canonical name when the same
 weights are served under different ids by multiple providers) — see
 `docs/usage.md` and `core/model_identity.py`.
+
+**Fine-tuned-variant provenance** (`weights_version`, `precision`,
+`serving_stack`) — operator-asserted free text for the fine-tuned-model
+re-test workflow: `weights_version` names the exact weights (base checkpoint +
+adapter id + revision, e.g. `gemma-4-31b-it + remediation-lora-v1 (merged,
+r=16)`), `precision` the numeric precision (`bf16`, `qat-q8_0 gguf`),
+`serving_stack` the server (`llama.cpp b6XXX`, `vLLM 0.10.0`). Empty for stock
+weights. Unlike the dropped standalone `quant` field, `precision` never stands
+alone — it is meaningful only next to `weights_version`, which is why it
+returns here as part of that triple. Set per run with
+`--weights-version/--precision/--serving-stack` or
+`ESCAPE_WEIGHTS_VERSION`/`ESCAPE_PRECISION`/`ESCAPE_SERVING_STACK`.
 
 **`max_tokens` comparability note:** the per-model registry
 (`core/model_registry.py`) raised the default per-turn `max_tokens` from 512

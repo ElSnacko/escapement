@@ -210,6 +210,16 @@ def main():
                          "(env: ESCAPE_SOURCE) -- e.g. 'unsloth', 'google'. "
                          "Auto-extracted from 'org/name' ids; assert it for bare/"
                          "provider ids. Blank if unknown.")
+    ap.add_argument("--weights-version", default=os.environ.get("ESCAPE_WEIGHTS_VERSION", ""),
+                    help="Fine-tuned-variant provenance: base checkpoint + adapter "
+                         "id + revision, forwarded to every trial (env: "
+                         "ESCAPE_WEIGHTS_VERSION). Empty for stock weights.")
+    ap.add_argument("--precision", default=os.environ.get("ESCAPE_PRECISION", ""),
+                    help="Numeric precision of the served weights, forwarded to "
+                         "every trial (env: ESCAPE_PRECISION).")
+    ap.add_argument("--serving-stack", default=os.environ.get("ESCAPE_SERVING_STACK", ""),
+                    help="Serving stack + version, forwarded to every trial (env: "
+                         "ESCAPE_SERVING_STACK).")
     ap.add_argument("--tool-protocol", choices=("native", "react"), default=None,
                     help="Tool-call protocol. If unset, the model-config registry "
                          "picks per model (native for most, react for gemma-4 whose "
@@ -283,6 +293,16 @@ def main():
         if args.judge_api_key:
             judge_argv += ["--judge-api-key", args.judge_api_key]
         judge_argv += ["--judge-temp", str(args.judge_temp)]
+
+    # Variant-provenance flags ride the same per-trial passthrough as the judge
+    # set (smoke included) rather than growing _trial's signature further.
+    variant_argv = []
+    if args.weights_version:
+        variant_argv += ["--weights-version", args.weights_version]
+    if args.precision:
+        variant_argv += ["--precision", args.precision]
+    if args.serving_stack:
+        variant_argv += ["--serving-stack", args.serving_stack]
 
     scenarios = [s.strip() for s in args.scenarios.split(",") if s.strip()]
     frames = [f.strip() for f in args.frames.split(",") if f.strip()]
@@ -369,7 +389,7 @@ def main():
                              args.max_tokens, container=containers[0],
                              tag=f"smoke_{uuid.uuid4().hex[:6]}", model=args.model,
                              model_label=args.model_label, source=args.source,
-                             extra_argv=judge_argv)
+                             extra_argv=judge_argv + variant_argv)
             if (sm is None or sm.get("total_tokens", 0) <= 0
                     or sm.get("steps", 0) <= 2 or sm.get("degenerated", False)):
                 sys.exit(f"!! smoke trial failed against {h} ({err or 'degenerate/empty'}) -- "
@@ -388,7 +408,7 @@ def main():
                         args.temp, args.max_steps, args.max_tokens,
                         container=container, tag=tag, model=args.model,
                         model_label=args.model_label, source=args.source,
-                        extra_argv=judge_argv)
+                        extra_argv=judge_argv + variant_argv)
         if m is None and err:
             tqdm.write(f"  [ERR] {sc}|{fr}|{tag[-12:]}: {err[:200]}")
         # err MUST travel with the result: the accumulator classifies each
