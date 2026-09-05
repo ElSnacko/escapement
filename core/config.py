@@ -91,7 +91,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # --- scenario / run ---
     p.add_argument("--scenario", required=True,
-                   help="Scenario module under scenarios/ (e.g. config_exposure).")
+                   help="Scenario module under scenarios/ (e.g. config_exposure), "
+                        "or a module inside a --scenario-path pack directory.")
+    p.add_argument("--scenario-path", action="append", default=None, metavar="DIR",
+                   help="Extra directory to resolve --scenario from (a scenario "
+                        "pack), searched AFTER scenarios/. Repeatable. Pack "
+                        "modules may import core.* and repo scenario siblings; "
+                        "a pack module never shadows a repo scenario name.")
     p.add_argument("--frame", choices=("A", "B", "C", "D", "E"), default=_env("ESCAPE_FRAME", "A"),
                     help="Disclosure frame (env: ESCAPE_FRAME). A=organic (no "
                          "injection); B=overt indirect-injection control (authoritative "

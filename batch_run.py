@@ -176,6 +176,44 @@ def _is_rate_limit_err(err):
     return any(k in e for k in _RL_MARKERS)
 
 
+def _load_pack(pack_dir):
+    p = os.path.join(pack_dir, "pack.json")
+    if not os.path.isfile(p):
+        sys.exit(f"!! --pack: no pack.json under {pack_dir}")
+    try:
+        return json.load(open(p, encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        sys.exit(f"!! --pack: unreadable pack.json: {exc}")
+
+
+def _apply_pack(args, defaults):
+    """Fill the cell axes from pack.json. A CLI flag that differs from the
+    parser default was explicitly given and wins (with a notice); pack.json
+    only replaces values the operator left at their defaults."""
+    pack = _load_pack(args.pack)
+    axis = (("scenarios", "scenarios"), ("frames", "frames"),
+            ("agency", "agency"), ("aware", "aware"), ("n", "n"))
+    for dest, key in axis:
+        if pack.get(key) is None:
+            continue
+        val = pack[key]
+        if dest in ("scenarios", "frames"):
+            val = ",".join(str(v) for v in val) if isinstance(val, list) else str(val)
+        else:
+            val = int(val) if dest == "n" else str(val)
+        cur = getattr(args, dest)
+        if cur != defaults.get(dest):
+            print(f"  >> pack {pack.get('name') or args.pack}: keeping explicit "
+                  f"--{dest.replace('_', '-')}={cur} over pack.json "
+                  f"{key}={val}")
+            continue
+        setattr(args, dest, val)
+    print(f"  >> pack {pack.get('name') or args.pack}: "
+          f"scenarios={args.scenarios} frames={args.frames} "
+          f"agency={args.agency} aware={args.aware} n={args.n}")
+    return pack
+
+
 def main():
     load_env()
     ap = argparse.ArgumentParser(description="Batch sweep with Wilson-CI rates.")
@@ -191,6 +229,12 @@ def main():
                          "--frames). 'both' is the design for testing whether "
                          "awareness changes injection compliance.")
     ap.add_argument("--n", type=int, default=10, help="Trials per cell.")
+    ap.add_argument("--pack", default="",
+                    help="Scenario pack directory: its pack.json fills the cell "
+                         "axes (scenarios/frames/agency/aware/n) and the dir is "
+                         "forwarded as --scenario-path to every trial. A CLI "
+                         "axis flag explicitly given alongside --pack wins over "
+                         "pack.json. See docs/scenario_packs.md.")
     ap.add_argument("--host", default=os.environ.get("ESCAPE_HOST", "http://127.0.0.1:8080"),
                     help="Model endpoint(s). Comma-separated for multi-endpoint "
                          "(dual-instance) mode -- workers round-robin across endpoints.")
@@ -281,6 +325,13 @@ def main():
                     help="Judge sampling temperature (env: ESCAPE_JUDGE_TEMP).")
     args = ap.parse_args()
 
+    # --pack: pack.json fills the cell axes (an explicitly-given CLI flag wins)
+    # and the pack dir rides along as a --scenario-path for every trial.
+    pack_argv = []
+    if args.pack:
+        _apply_pack(args, ap.parse_args([]).__dict__)
+        pack_argv = ["--scenario-path", args.pack]
+
     # run.py flags forwarded verbatim to every trial (smoke included, so a
     # judged batch has no unjudged stragglers).
     judge_argv = []
@@ -305,6 +356,16 @@ def main():
         variant_argv += ["--serving-stack", args.serving_stack]
 
     scenarios = [s.strip() for s in args.scenarios.split(",") if s.strip()]
+    # Pack pre-flight: a bad pack scenario must fail HERE with its name, not
+    # as N per-trial "trial crashed" errors after the batch already started.
+    if args.pack:
+        from core.scenario import load_scenario
+        for s in scenarios:
+            try:
+                load_scenario(s, paths=[args.pack])
+            except Exception as exc:  # noqa: BLE001
+                sys.exit(f"!! pack scenario {s!r} failed to load from "
+                         f"{args.pack}: {exc}")
     frames = [f.strip() for f in args.frames.split(",") if f.strip()]
     agency_modes = ([False, True] if args.agency == "both"
                     else [True] if args.agency == "on" else [False])
@@ -389,7 +450,7 @@ def main():
                              args.max_tokens, container=containers[0],
                              tag=f"smoke_{uuid.uuid4().hex[:6]}", model=args.model,
                              model_label=args.model_label, source=args.source,
-                             extra_argv=judge_argv + variant_argv)
+                             extra_argv=judge_argv + variant_argv + pack_argv)
             if (sm is None or sm.get("total_tokens", 0) <= 0
                     or sm.get("steps", 0) <= 2 or sm.get("degenerated", False)):
                 sys.exit(f"!! smoke trial failed against {h} ({err or 'degenerate/empty'}) -- "
@@ -408,7 +469,7 @@ def main():
                         args.temp, args.max_steps, args.max_tokens,
                         container=container, tag=tag, model=args.model,
                         model_label=args.model_label, source=args.source,
-                        extra_argv=judge_argv + variant_argv)
+                        extra_argv=judge_argv + variant_argv + pack_argv)
         if m is None and err:
             tqdm.write(f"  [ERR] {sc}|{fr}|{tag[-12:]}: {err[:200]}")
         # err MUST travel with the result: the accumulator classifies each

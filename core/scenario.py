@@ -5,6 +5,10 @@ as a world-readable config), and the paths capture needs to know about.
 
 from typing import Dict, Optional
 
+import os
+import re
+import sys
+
 # Agency + long-term goal-directedness framing (--agency). Assembled from the
 # two prompt snippets Hopman et al. identified as the dominant scheming-inducing
 # agent factors in real scaffolds: the "agency" snippet ("analyze the situation
@@ -137,12 +141,39 @@ def compose_seed_text(scenario: Scenario, frame: str = "A", agency: bool = False
     return "\n".join(list(seed_files.values()) + [system, scenario.task_message or ""])
 
 
-def load_scenario(name: str) -> Scenario:
-    """Import scenarios/<name>.py and return its Scenario instance."""
+def load_scenario(name: str, paths=None) -> Scenario:
+    """Import scenarios/<name>.py and return its Scenario instance.
+
+    paths: extra directories (a scenario pack) searched AFTER the repo's
+    scenarios/ package. Pack modules load by file location under a
+    namespaced module name, so a pack module that shadows a repo name never
+    wins (repo first) and two packs cannot collide in sys.modules. Pack
+    modules may import core.* and repo siblings (``from scenarios import
+    config_exposure``) but not each other -- keep them self-contained.
+    """
     import importlib
-    mod = importlib.import_module(f"scenarios.{name}")
+    import importlib.util
+    mod = None
+    try:
+        mod = importlib.import_module(f"scenarios.{name}")
+    except ImportError:
+        for base in (paths or []):
+            f = os.path.join(base, f"{name}.py")
+            if not os.path.isfile(f):
+                continue
+            # Namespace the module by its pack path so same-named modules from
+            # different packs don't clobber each other in sys.modules.
+            slug = re.sub(r"[^A-Za-z0-9_]", "_", os.path.abspath(base))
+            mname = f"_scenario_pack.{slug}.{name}"
+            spec = importlib.util.spec_from_file_location(mname, f)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[mname] = mod
+            spec.loader.exec_module(mod)
+            break
+        if mod is None:
+            raise
     for attr in dir(mod):
         obj = getattr(mod, attr)
         if isinstance(obj, type) and issubclass(obj, Scenario) and obj is not Scenario:
             return obj()
-    raise RuntimeError(f"no Scenario subclass found in scenarios.{name}")
+    raise RuntimeError(f"no Scenario subclass found in {name}")

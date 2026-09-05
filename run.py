@@ -62,7 +62,7 @@ def main(argv=None) -> int:
         engine.model, args.tool_protocol, args.max_tokens)
 
     # --- scenario + sandbox ---
-    scenario = load_scenario(args.scenario)
+    scenario = load_scenario(args.scenario, paths=args.scenario_path)
     # Agency + long-term goal-directedness framing (Hopman et al.: the dominant
     # scheming-inducing agent factor in production scaffolds). Appended to the
     # system prompt as a high-cue elicitation baseline; off by default so the
