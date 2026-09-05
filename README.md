@@ -206,6 +206,53 @@ The `dataset_codebook.md` at the dataset root (mirrored at
 `docs/dataset_codebook.md`) documents every column; read it before interpreting
 the `exfil_attempt` column on `goal_*` trials (it over-fires there).
 
+## Testing a fine-tuned model
+
+The harness is a closed loop for externally fine-tuned models: distill a
+well-behaved **teacher** into a **student**, then re-test the student on the
+same cells (or a held-out surface) and compare — training itself stays out of
+the repo.
+
+```bash
+# 1. Export the teacher's clean trajectories (distillation data), holding out
+#    the cells you will re-test the student on so they stay uncontaminated
+#    (no --scenario = trains on every scenario the teacher ran; the holdout protects the re-test cells)
+python scripts/export_finetune.py --model gemma-4-31b --selection exemplars \
+    --holdout "config_exposure:B,config_exposure:C" --name teacher-v1
+#    -> runs/exports/teacher-v1/{finetune_trials.jsonl,export_manifest.json}
+
+# 2. Distill externally (SFT/DPO/whatever your stack), merge, and serve the
+#    student -- merged GGUF via scripts/swap_model.sh (built for the
+#    serve_remote.sh/Kaggle llama.cpp tree, needs its build); local
+#    llama.cpp/vLLM users serve their endpoint directly; register per-model
+#    knobs in core/model_registry.py if it needs different protocol/max_tokens.
+
+# 3. Re-test the student under its own label, self-describing provenance,
+#    judged by a reference model (not itself); --host is the endpoint of the
+#    served student (llama.cpp :8080, vLLM :8000 -- the default is llama.cpp)
+python batch_run.py --scenarios config_exposure --frames B,C --n 30 \
+    --host <student-endpoint> \
+    --model-label "gemma-4-31b+distill-v1" \
+    --weights-version "gemma-4-31b + teacher-v1 (merged)" \
+    --precision bf16 --serving-stack "vLLM 0.10" \
+    --judge --judge-host <reference> --judge-model <reference-model>
+
+# 4. Compare pre/post. compare.py labels each cell trained-on vs held-out
+#    and runs the CMH over both scopes; this recipe re-tests only the
+#    held-out cells (the verdict that generalizes) -- re-test a trained-on
+#    frame too (e.g. --frames A) for the memorization check
+python scripts/compare.py --a gemma-4-31b --b "gemma-4-31b+distill-v1" \
+    --export-manifest runs/exports/teacher-v1/export_manifest.json
+```
+
+For a fully held-out re-test surface, run a **scenario pack**
+([docs/scenario_packs.md](docs/scenario_packs.md)) — custom scenario modules
+that never entered `runs/` before the re-test, so contamination is structural
+rather than filtered. `scripts/compare.py` reports per-cell k/n + Wilson CI +
+Fisher, the stratified CMH over all and held-out cells, flags underpowered
+cells instead of reading them as "no change", and warns on mixed detector
+versions.
+
 ## Inspect AI interop
 
 Escapement ships an **Inspect task adapter** (`escapement_inspect.py` + a
@@ -279,6 +326,7 @@ expect.
 - **[docs/related_work.md](docs/related_work.md)** — 2026 injection-benchmark landscape (AgentDojo/InjecAgent/ASB/AgentDyn) + the ASR vocabulary mapping
 - **[docs/inverse_scaling.md](docs/inverse_scaling.md)** — does injection compliance scale with capability on open-weights? (figures: `inverse_scaling_*.png`)
 - **[docs/dataset_codebook.md](docs/dataset_codebook.md)** — data dictionary for the HF dataset
+- **[docs/scenario_packs.md](docs/scenario_packs.md)** — custom eval scenarios outside the repo (the held-out re-test surface)
 - **[docs/architecture.md](docs/architecture.md)** — sandbox and capture sink design
 - **[docs/usage.md](docs/usage.md)** — per-model configuration
 - **[scripts/recompute_canonical.py](scripts/recompute_canonical.py)** — regenerate the headline tables
