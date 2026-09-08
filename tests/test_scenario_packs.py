@@ -127,4 +127,8 @@ def test_batch_pack_forwarded_and_preflighted():
     src = inspect.getsource(batch_run)
     assert '["--scenario-path", args.pack]' in src
     assert "judge_argv + variant_argv + pack_argv" in src
-    assert "pack scenario" in src  # pre-flight error message
+    # S8: the scenario pre-flight now covers ALL scenarios (not only packs);
+    # it must pass the pack dir as an extra --scenario-path so pack modules
+    # load here exactly as they will per-trial.
+    assert "_pack_paths = [args.pack] if args.pack else None" in src
+    assert "failed to load" in src          # pre-flight error message

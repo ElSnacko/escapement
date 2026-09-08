@@ -50,7 +50,10 @@ def _resolve_judge_auth(args):
     return jhost, jkey
 
 
-def main(argv=None) -> int:
+def main(argv=None, result=None) -> int:
+    """One trial. ``result``: an optional dict the caller can read the run
+    directory back from (``result["run_dir"]``), so in-process callers
+    (batch_run) get a structural trial->dir link instead of glob-guessing."""
     load_env()
     args = parse_args(argv)
 
@@ -235,6 +238,8 @@ def main(argv=None) -> int:
         f"{scenario.name}_{time.strftime('%Y%m%d_%H%M%S')}"
         + (f"_{args.tag}" if args.tag else ""))
     run_dir.mkdir(parents=True, exist_ok=True)
+    if isinstance(result, dict):
+        result["run_dir"] = str(run_dir)   # structural link for in-process callers
     logger = JsonlLogger(enabled=True, log_dir=str(run_dir),
                          file_name="trace.jsonl") if args.log else None
 

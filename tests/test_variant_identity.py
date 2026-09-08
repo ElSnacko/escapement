@@ -60,7 +60,8 @@ def test_trial_forwards_variant_argv(tmp_path, monkeypatch):
     (tmp_path / "runs").mkdir()
     captured = {}
 
-    def fake_run_one(argv):
+    def fake_run_one(argv=None, **kw):
+        # **kw: _trial passes result={} for the structural run-dir link (S8)
         captured["argv"] = list(argv)
         d = tmp_path / "runs" / "config_exposure_20260101_000000_wv1x"
         d.mkdir()

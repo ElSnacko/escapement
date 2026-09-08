@@ -182,6 +182,62 @@ def test_trial_api_key_via_env_and_stderr_tail(monkeypatch, tmp_path, capsys):
     assert "WARNING" in capsys.readouterr().err
 
 
+def test_trial_systemexit_is_caught_not_fatal():
+    # S8/A1: an invalid frame letter makes run.py's argparse raise SystemExit
+    # (BaseException) -- previously it escaped _trial's `except Exception`,
+    # re-raised at fut.result() and killed the whole sweep.
+    m, err = batch_run._trial("config_exposure", "X", False, False,
+                              "http://127.0.0.1:1", "not-needed", "native",
+                              0.7, 5, 512, tag="sx")
+    assert m is None
+    assert err and "argv rejected" in err
+
+
+def test_trial_exit4_maps_to_skipped(tmp_path, monkeypatch):
+    # S8: run.py's frame-not-applicable refusal (exit 4) becomes a distinct
+    # "skipped:" error so the accumulator can treat the cell as done rather
+    # than as a dead endpoint.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "runs").mkdir()
+    monkeypatch.setattr(batch_run, "run_one", lambda argv=None, **kw: 4)
+    m, err = batch_run._trial("config_exposure", "E", False, False,
+                              "http://h", "not-needed", "native", 0.7, 5, 512,
+                              tag="sk")
+    assert m is None and err == "skipped: frame not applicable"
+
+
+def test_trial_uses_structural_run_dir(tmp_path, monkeypatch):
+    # S8/A3: run.main hands its run dir back via the `result` dict; _trial
+    # uses it instead of glob-guessing. The fake creates a dir whose name does
+    # NOT contain the tag, so only the structural path can find it.
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "runs").mkdir()
+
+    def fake_run_one(argv=None, result=None, **kw):
+        dd = tmp_path / "runs" / "weird_name_without_tag"
+        dd.mkdir()
+        (dd / "metrics.json").write_text(
+            json.dumps({"model": "m", "total_tokens": 10, "steps": 5}),
+            encoding="utf-8")
+        if isinstance(result, dict):
+            result["run_dir"] = str(dd)
+
+    monkeypatch.setattr(batch_run, "run_one", fake_run_one)
+    m, err = batch_run._trial("config_exposure", "A", False, False,
+                              "http://h", "not-needed", "native", 0.7, 5, 512,
+                              tag="nomatch")
+    assert err is None and m is not None and m["model"] == "m"
+
+
+def test_main_loop_handles_skipped_cells_without_counting_errors():
+    # source pin (same style as test_run_task_returns_error_with_result):
+    # skipped refusals bypass the error counter AND the fill loop treats the
+    # cell as filled.
+    src = inspect.getsource(batch_run.main)
+    assert 'startswith("skipped:")' in src
+    assert "in skipped" in src
+
+
 def test_concurrent_trials_do_not_hijack_process_stdout(monkeypatch, capsys, tmp_path):
     # M1/S3: contextlib.redirect_stdout swaps the PROCESS-GLOBAL sys.stdout;
     # two overlapping trials restore in the wrong order and leave both streams

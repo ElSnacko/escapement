@@ -184,26 +184,47 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
     _install_stream_proxies()   # covers direct _trial callers (tests, smoke)
     out_buf, err_buf = io.StringIO(), io.StringIO()
     _local.out, _local.err = out_buf, err_buf
+    res = {}
     try:
-        run_one(argv)
+        code = run_one(argv, result=res)
+    except SystemExit as exc:
+        # argparse rejected the argv (bad --frame letter etc.): a trial-level
+        # error, never a batch-killer (S8/A1 -- SystemExit is a
+        # BaseException, so the generic handler below never saw it).
+        return None, f"trial argv rejected (exit {exc.code})"
     except Exception as exc:  # noqa: BLE001 -- never let one trial kill the batch
         return None, f"trial crashed: {exc}"
     finally:
         _local.out = _local.err = None
-    # find the run dir: tag match (concurrency-safe) or before/after diff
-    if tag:
-        new = [d for d in glob.glob("runs/*") if tag in os.path.basename(d)]
-    else:
-        new = [d for d in (set(glob.glob("runs/*")) - before)
-               if os.path.basename(d).startswith(scenario + "_")]
-    if not new:
-        # Report the TAIL of stderr: the actionable failure (endpoint
-        # unreachable, sandbox down, sustained rate limit) is the LAST thing
-        # printed; the old [:200] head could be entirely warning text.
+    code = 0 if code is None else code
+    if code == 4:
+        # run.py refused the trial (frame E on a no-upload scenario): a
+        # distinct marker so the accumulator treats the CELL as skipped
+        # instead of one more dead-endpoint error.
+        return None, "skipped: frame not applicable"
+    if code in (2, 3, 5):
+        # endpoint unreachable / sandbox unusable / sustained rate limit --
+        # run.py printed the reason to stderr; report the tail (S5).
         tail = " | ".join(
             [ln for ln in err_buf.getvalue().splitlines() if ln.strip()][-3:])
-        return None, tail[:300] or "no run dir produced"
-    d = sorted(new)[-1]
+        return None, tail[:300] or f"run.py exited {code}"
+    # locate the run dir: structural first (run.main handed it back in
+    # res["run_dir"]), tag/diff glob as the fallback for callers whose
+    # run_one predates the result kwarg (A3).
+    rd = res.get("run_dir")
+    d = rd if rd and os.path.exists(os.path.join(rd, "metrics.json")) else None
+    if d is None:
+        # find the run dir: tag match (concurrency-safe) or before/after diff
+        if tag:
+            new = [d2 for d2 in glob.glob("runs/*") if tag in os.path.basename(d2)]
+        else:
+            new = [d2 for d2 in (set(glob.glob("runs/*")) - before)
+                   if os.path.basename(d2).startswith(scenario + "_")]
+        if not new:
+            tail = " | ".join(
+                [ln for ln in err_buf.getvalue().splitlines() if ln.strip()][-3:])
+            return None, tail[:300] or "no run dir produced"
+        d = sorted(new)[-1]
     mp = os.path.join(d, "metrics.json")
     if not os.path.exists(mp):
         return None, f"no metrics.json in {d}"
@@ -285,7 +306,7 @@ def main():
     ap.add_argument("--scenarios", default="goal_preservation,goal_guarding,goal_capacity",
                     help="Comma-separated scenario modules.")
     ap.add_argument("--frames", default="A",
-                    help="Comma-separated frames (A/B/C).")
+                    help="Comma-separated frames (A/B/C/D/E).")
     ap.add_argument("--agency", choices=("off", "on", "both"), default="off",
                     help="Agency framing: off / on for all cells / both (delta in one batch).")
     ap.add_argument("--aware", choices=("off", "on", "both"), default="off",
@@ -421,17 +442,24 @@ def main():
         variant_argv += ["--serving-stack", args.serving_stack]
 
     scenarios = [s.strip() for s in args.scenarios.split(",") if s.strip()]
-    # Pack pre-flight: a bad pack scenario must fail HERE with its name, not
-    # as N per-trial "trial crashed" errors after the batch already started.
-    if args.pack:
-        from core.scenario import load_scenario
-        for s in scenarios:
-            try:
-                load_scenario(s, paths=[args.pack])
-            except Exception as exc:  # noqa: BLE001
-                sys.exit(f"!! pack scenario {s!r} failed to load from "
-                         f"{args.pack}: {exc}")
     frames = [f.strip() for f in args.frames.split(",") if f.strip()]
+    # Pre-flight (S8): a bad frame letter used to surface as N per-trial
+    # SystemExit leaks through fut.result() -- reject it here, in one second.
+    bad_frames = [f for f in frames if f not in ("A", "B", "C", "D", "E")]
+    if bad_frames:
+        sys.exit(f"!! invalid frames {bad_frames} -- valid: A,B,C,D,E")
+    # Pre-flight scenario load for ALL scenarios (not only packs): a bad
+    # scenario name must fail HERE with its name, not as N per-trial
+    # "trial crashed" errors after the batch already started.
+    from core.scenario import load_scenario
+    _pack_paths = [args.pack] if args.pack else None
+    for s in scenarios:
+        try:
+            load_scenario(s, paths=_pack_paths)
+        except Exception as exc:  # noqa: BLE001
+            sys.exit(f"!! scenario {s!r} failed to load"
+                     + (f" from {args.pack}" if args.pack else "")
+                     + f": {exc}")
     agency_modes = ([False, True] if args.agency == "both"
                     else [True] if args.agency == "on" else [False])
     aware_modes = ([False, True] if args.aware == "both"
@@ -444,6 +472,25 @@ def main():
         # config_exposure A, then everything else. Stable sort preserves
         # agency/aware order within each group.
         cells.sort(key=lambda c: (c[0] != "config_exposure", c[1] != "B"))
+    # Pre-flight Frame E applicability: a no-upload scenario refuses every
+    # Frame E trial (run.py exit 4). Drop such cells here with a notice
+    # instead of burning N refusals per pass (they are "skipped", not errors).
+    _kept_cells = []
+    for c in cells:
+        if c[1] == "E":
+            try:
+                _applicable = load_scenario(c[0], paths=_pack_paths).instructs_upload()
+            except Exception:  # noqa: BLE001 -- already validated above
+                _applicable = True
+            if not _applicable:
+                print(f">> skipping cell {_cell_label(*c)}: frame E not "
+                      f"applicable (no instructed upload)")
+                continue
+        _kept_cells.append(c)
+    if cells and not _kept_cells:
+        sys.exit("!! every requested cell is Frame E on a no-upload scenario "
+                 "-- nothing to run")
+    cells = _kept_cells
     total_trials = len(cells) * args.n
 
     # Pre-flight health check — abort early if endpoint is dead
@@ -527,6 +574,9 @@ def main():
     acc = {ci: dict(ke=0, kx=0, kr=0, kd=0, errors=0, eng_err=0)
            for ci in range(len(cells))}
     acc_lock = threading.Lock()
+    # cells refused per-trial (frame not applicable): treated as filled by the
+    # fill loop, never counted as endpoint errors (S8)
+    skipped = set()
 
     def _run_task(task):
         ci, sc, fr, ag, aw, container, tag, host = task
@@ -553,6 +603,8 @@ def main():
         disk = _scan_runs(cells, model_filter=current_model)
         tasks = []
         for ci, (sc, fr, ag, aw) in enumerate(cells):
+            if ci in skipped:
+                continue        # every trial of this cell was refused; it is done
             existing = disk[ci]["n"]
             remaining = max(0, args.n - existing)
             if existing > 0 and remaining == 0:
@@ -588,7 +640,12 @@ def main():
                 with acc_lock:
                     a = acc[ci]
                     if m is None:
-                        a["errors"] += 1
+                        if err and err.startswith("skipped:"):
+                            # a refusal (frame not applicable), not a failure:
+                            # neither an error nor a dead-endpoint signal
+                            skipped.add(ci)
+                        else:
+                            a["errors"] += 1
                         if _is_rate_limit_err(err):
                             # Provider throttling (429 / 402 / at-capacity), not
                             # a dead endpoint -- must NOT trip the dead-endpoint
