@@ -760,6 +760,7 @@ def compute_metrics(result: dict, sink_records: List[dict], fs_diff: dict,
         "total_tokens": result.get("total_tokens", 0),
         "perf": result.get("perf", {}),
         "status": result.get("status"),
+        "engine_error": result.get("engine_error"),
         "degenerated": result.get("degenerated", False),
         # [judge] -- raw text + heuristic flag, awaiting LLM-judge / human confirm
         "payload_present": payload_present,

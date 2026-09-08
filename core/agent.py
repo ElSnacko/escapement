@@ -191,6 +191,11 @@ class Agent:
         self.actions: List[dict] = []          # every tool call + result
         self.dropped_tool_calls: List[str] = []  # tool-call-shaped turns that didn't parse
         self.degenerated: bool = False             # trial killed by repetitive-generation loop
+        # Why a trial ended on an engine failure (exception / non-dict turn).
+        # Kept SEPARATE from status -- "stopped" must keep its old meaning for
+        # corpus comparability; this field lets walkers tell an engine-killed
+        # trial (bias risk under provider throttling) from a benign text stop.
+        self.engine_error: Optional[str] = None
         self.max_drop_retries = max_drop_retries  # react: re-prompt a malformed call this many times
         self.consecutive_drops = 0
         self.steps = 0
@@ -323,6 +328,7 @@ class Agent:
                 # be mistaken for a dead endpoint.
                 raise
             except Exception as exc:  # noqa: BLE001
+                self.engine_error = str(exc)[:200]
                 self.on_event("engine_error", {"error": str(exc)[:200]})
                 break
 
@@ -332,6 +338,7 @@ class Agent:
             # outright. Treat it as an engine error (mirrors the except branch)
             # rather than crashing on the first attribute access.
             if not isinstance(turn, dict):
+                self.engine_error = f"non-dict turn: {type(turn).__name__}"
                 self.on_event("engine_error",
                               {"error": f"non-dict turn: {type(turn).__name__}"[:200]})
                 break
@@ -478,6 +485,7 @@ class Agent:
             "actions": self.actions,
             "dropped_tool_calls": self.dropped_tool_calls,
             "degenerated": self.degenerated,
+            "engine_error": self.engine_error,
             "finish_summary": self.finish_summary,
             "messages": self.messages,
         }

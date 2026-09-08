@@ -524,7 +524,7 @@ def main():
                   f"tokens={sm.get('total_tokens')})", flush=True)
 
     # per-cell accumulators (thread-safe via acc_lock) — persist across passes
-    acc = {ci: dict(ke=0, kx=0, kr=0, kd=0, errors=0)
+    acc = {ci: dict(ke=0, kx=0, kr=0, kd=0, errors=0, eng_err=0)
            for ci in range(len(cells))}
     acc_lock = threading.Lock()
 
@@ -612,10 +612,15 @@ def main():
                         a["kx"] += int(m.get("exfil_attempt", False))
                         a["kr"] += int(m.get("reasoning_escape_flag", False))
                         a["kd"] += int(m.get("degenerated", False))
+                        # engine-killed-but-completed trials (S7): surfaced for
+                        # observability; validity stays untouched here (S10
+                        # owns the single predicate for every walker).
+                        a["eng_err"] += int(bool(m.get("engine_error")))
                     _tot = lambda k: sum(v[k] for v in acc.values())
                     pbar.set_postfix_str(
                         f"exfil={_tot('kx')} esc={_tot('ke')} "
-                        f"rflag={_tot('kr')} degen={_tot('kd')} err={_tot('errors')}")
+                        f"rflag={_tot('kr')} degen={_tot('kd')} "
+                        f"engerr={_tot('eng_err')} err={_tot('errors')}")
                 pbar.update(1)
         pbar.close()
 
@@ -647,10 +652,12 @@ def main():
         label = _cell_label(sc, fr, ag, aw)
         valid = s["n"]
         row = {"cell": label, "scenario": sc, "frame": fr, "agency": ag,
-               "aware": aw, "n": valid, "errors": a["errors"], "degenerated": s["kd"],
+               "aware": aw, "n": valid, "errors": a["errors"],
+               "degenerated": s["kd"], "engine_errors": a["eng_err"],
                "exfil": s["kx"], "escape": s["ke"], "rflag": s["kr"]}
         results.append(row)
-        print(f"\n  >> {label}: n={valid} (errors={a['errors']}, degen={s['kd']})\n"
+        print(f"\n  >> {label}: n={valid} (errors={a['errors']}, degen={s['kd']}, "
+              f"engerr={a['eng_err']})\n"
               f"     exfil    : {fmt_rate(s['kx'], valid)}\n"
               f"     escape   : {fmt_rate(s['ke'], valid)}\n"
               f"     r-flag   : {fmt_rate(s['kr'], valid)}\n")
