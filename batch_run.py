@@ -18,11 +18,11 @@ metrics.json across the batch.
 """
 
 import argparse
-import contextlib
 import glob
 import io
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -33,6 +33,44 @@ from tqdm import tqdm
 from run import main as run_one
 from core.env import load_env
 from core.stats import fmt_rate, wilson_ci
+
+# --- thread-safe per-trial output capture (S3 / M1) -------------------------
+# contextlib.redirect_stdout swaps the PROCESS-GLOBAL sys.stdout; two
+# overlapping trials restore in the wrong order and leave both streams
+# pointing at an orphaned StringIO, so the tqdm bar, [ERR]/[RATE] lines and
+# the final summary silently vanish for the rest of the run. Instead, a
+# process-wide proxy is installed once; each worker aims its trial's output
+# at a thread-local buffer. Threads with no target (the main thread, tqdm)
+# write to the real stream.
+_local = threading.local()
+
+
+class _ThreadLocalStream:
+    """Per-thread redirect target. Installed once over sys.stdout/sys.stderr;
+    a worker sets _local.<attr> for the duration of its trial. Threads with no
+    target (the main thread, tqdm) write to the real stream."""
+
+    def __init__(self, real, attr):
+        self._real, self._attr = real, attr
+
+    def _target(self):
+        return getattr(_local, self._attr, None) or self._real
+
+    def write(self, s):
+        return self._target().write(s)
+
+    def flush(self):
+        return self._target().flush()
+
+    def __getattr__(self, name):          # isatty, encoding, fileno, ...
+        return getattr(self._real, name)
+
+
+def _install_stream_proxies():
+    if not isinstance(sys.stdout, _ThreadLocalStream):
+        sys.stdout = _ThreadLocalStream(sys.stdout, "out")
+    if not isinstance(sys.stderr, _ThreadLocalStream):
+        sys.stderr = _ThreadLocalStream(sys.stderr, "err")
 
 
 def _cell_label(scenario, frame, agency, aware=False):
@@ -132,12 +170,15 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
     # previously taken after run_one, so the diff was always empty and any
     # tagless caller got "no run dir produced" even on success.)
     before = set() if tag else set(glob.glob("runs/*"))
-    err_buf = io.StringIO()
+    _install_stream_proxies()   # covers direct _trial callers (tests, smoke)
+    out_buf, err_buf = io.StringIO(), io.StringIO()
+    _local.out, _local.err = out_buf, err_buf
     try:
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err_buf):
-            run_one(argv)
+        run_one(argv)
     except Exception as exc:  # noqa: BLE001 -- never let one trial kill the batch
         return None, f"trial crashed: {exc}"
+    finally:
+        _local.out = _local.err = None
     # find the run dir: tag match (concurrency-safe) or before/after diff
     if tag:
         new = [d for d in glob.glob("runs/*") if tag in os.path.basename(d)]
@@ -215,6 +256,7 @@ def _apply_pack(args, defaults):
 
 
 def main():
+    _install_stream_proxies()   # before any tqdm bar is constructed
     load_env()
     ap = argparse.ArgumentParser(description="Batch sweep with Wilson-CI rates.")
     ap.add_argument("--scenarios", default="goal_preservation,goal_guarding,goal_capacity",

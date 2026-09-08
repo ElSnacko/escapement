@@ -80,6 +80,57 @@ def test_trial_accepts_extra_argv():
     assert "extra_argv" in inspect.signature(batch_run._trial).parameters
 
 
+def test_concurrent_trials_do_not_hijack_process_stdout(monkeypatch, capsys, tmp_path):
+    # M1/S3: contextlib.redirect_stdout swaps the PROCESS-GLOBAL sys.stdout;
+    # two overlapping trials restore in the wrong order and leave both streams
+    # pointing at an orphaned StringIO -- the progress bar, [ERR]/[RATE] lines
+    # and the final summary silently vanish for the rest of the run. _trial
+    # must instead write to a thread-local buffer behind a per-process proxy.
+    import threading
+    import time as _time
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "runs").mkdir()
+
+    def _mk(suffix):
+        def fake_run_one(argv=None, **kw):
+            print(suffix * 100)           # goes to the trial's buffer, not the tty
+            _time.sleep(0.3 if suffix == "A" else 0.1)
+            d = tmp_path / "runs" / f"config_exposure_20260101_000000_t{suffix}"
+            d.mkdir()
+            (d / "metrics.json").write_text(
+                json.dumps({"model": "m", "total_tokens": 10, "steps": 5}),
+                encoding="utf-8")
+        return fake_run_one
+
+    state = {"n": 0}
+
+    def run_one(argv=None, **kw):
+        # overlap: trial A prints, sleeps through B's print, both restore
+        suffix = "A" if state["n"] == 0 else "B"
+        state["n"] += 1
+        return _mk(suffix)(argv, **kw)
+
+    monkeypatch.setattr(batch_run, "run_one", run_one)
+    ts = [threading.Thread(target=lambda s=s: batch_run._trial(
+        "config_exposure", "A", False, False, "http://localhost:8080",
+        "not-needed", "native", 0.7, 30, 2048, tag=f"t{s}")) for s in "AB"]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+
+    # after both trials, the process stream must still reach the real target
+    print("probe-real")
+    captured = capsys.readouterr()
+    assert "probe-real" in captured.out, \
+        "process stdout was left pointing at an orphaned buffer"
+    assert "A" * 100 not in captured.out and "B" * 100 not in captured.out, \
+        "trial output leaked to the real stream"
+    # and the proxy is installed, not the raw stream (idempotent across trials)
+    assert isinstance(sys.stdout, batch_run._ThreadLocalStream)
+
+
 def _minimal_metrics(**kw):
     result = {"actions": [], "scratchpad": [], "reasoning": [],
               "steps": 5, "status": "finished"}
