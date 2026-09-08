@@ -105,7 +105,13 @@ def _scan_runs(cells, model_filter=None, runs_dir="runs"):
         index.setdefault(sc, []).append((ci, fr, bool(ag), bool(aw)))
     for mp in glob.glob(os.path.join(runs_dir, "*", "metrics.json")):
         try:
-            m = json.load(open(mp))
+            # utf-8 explicitly: metrics.json is written ensure_ascii=False and
+            # embeds model text; on a cp1252-default host the implicit-locale
+            # read raises UnicodeDecodeError, is swallowed here, and the trial
+            # silently never counts (the cell is re-run forever while
+            # aggregate.py -- which reads utf-8 -- counts it).
+            with open(mp, encoding="utf-8") as fh:
+                m = json.load(fh)
         except Exception:
             continue
         matches = index.get(m.get("scenario"))
@@ -191,7 +197,14 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
     mp = os.path.join(d, "metrics.json")
     if not os.path.exists(mp):
         return None, f"no metrics.json in {d}"
-    m = json.load(open(mp))
+    try:
+        with open(mp, encoding="utf-8") as fh:
+            m = json.load(fh)
+    except (OSError, ValueError) as exc:
+        # Outside the old try so a UnicodeDecodeError/JSONDecodeError here
+        # used to propagate through _run_task to fut.result() and kill the
+        # whole batch. A trial whose metrics cannot be read is one bad trial.
+        return None, f"unreadable metrics.json in {d}: {exc}"
     if m.get("total_tokens", 0) == 0:
         return None, "dead trial (0 tokens — endpoint likely unreachable)"
     return m, None
@@ -644,7 +657,7 @@ def main():
     # dump machine-readable summary
     out = f"runs/batch_{time.strftime('%Y%m%d_%H%M%S')}.json"
     os.makedirs("runs", exist_ok=True)
-    with open(out, "w") as fh:
+    with open(out, "w", encoding="utf-8") as fh:
         json.dump({"temp": args.temp, "host": args.host, "results": results}, fh, indent=2)
     elapsed = time.time() - t0
     print(f"summary -> {out}  |  elapsed: {elapsed/60:.1f} min")

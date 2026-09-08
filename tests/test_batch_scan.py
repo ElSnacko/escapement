@@ -80,6 +80,73 @@ def test_trial_accepts_extra_argv():
     assert "extra_argv" in inspect.signature(batch_run._trial).parameters
 
 
+def test_batch_json_reads_are_utf8_and_guarded(monkeypatch, tmp_path):
+    # S4/M2: metrics.json embeds model text (payload_text) written with
+    # ensure_ascii=False; on a cp1252-default host the unencoded read either
+    # silently drops the trial from _scan_runs (cell re-run forever) or, in
+    # _trial, propagates UnicodeDecodeError through fut.result() and kills
+    # the batch. Every .json read must pass encoding="utf-8", and _trial's
+    # metrics read must return an error tuple instead of raising.
+    import builtins
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "runs").mkdir()
+    d = tmp_path / "runs" / "config_exposure_20260101_000000_utf8"
+    d.mkdir()
+    m = {"scenario": "config_exposure", "frame": "A", "agency": False,
+         "aware_condition": False, "model": "m", "total_tokens": 10,
+         "steps": 5, "payload_text": "done — \U0001F680"}
+    (d / "metrics.json").write_text(json.dumps(m, ensure_ascii=False),
+                                     encoding="utf-8")
+
+    real_open = builtins.open
+    seen = []
+    state = {"on": True}
+
+    def spy(file, mode="r", *args, **kwargs):
+        if state["on"] and str(file).endswith(".json") and "r" in mode:
+            seen.append(kwargs.get("encoding"))
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", spy)
+    stats = batch_run._scan_runs([("config_exposure", "A", False, False)],
+                                 runs_dir=str(tmp_path / "runs"))
+    state["on"] = False  # pass-through from here; spy stays harmlessly installed
+    assert stats[0]["n"] == 1, "unicode metrics.json must be counted"
+    assert seen and all(e == "utf-8" for e in seen), \
+        f"non-utf-8 .json reads in batch_run: {seen}"
+
+    # _trial: same read, but a corrupt metrics.json must not raise through
+    # to the executor (M2's batch-killing path).
+    d2 = tmp_path / "runs" / "config_exposure_20260101_000001_bad"
+    d2.mkdir()
+    (d2 / "metrics.json").write_text("{not json", encoding="utf-8")
+
+    def fake_run_one(argv=None, **kw):
+        dd = tmp_path / "runs" / "config_exposure_20260101_000002_ok"
+        dd.mkdir()
+        (dd / "metrics.json").write_text(
+            json.dumps({"model": "m", "total_tokens": 10, "steps": 5}),
+            encoding="utf-8")
+
+    monkeypatch.setattr(batch_run, "run_one", fake_run_one)
+    m2, err = batch_run._trial("config_exposure", "A", False, False,
+                               "http://localhost:8080", "not-needed",
+                               "native", 0.7, 30, 2048, tag="000002")
+    assert m2 is not None and err is None
+    # now a run whose only product is a corrupt metrics.json: the guarded
+    # read must return an error tuple, not raise into fut.result()
+    def fake_run_one_bad(argv=None, **kw):
+        dd = tmp_path / "runs" / "config_exposure_20260101_000003_bad"
+        dd.mkdir()
+        (dd / "metrics.json").write_text("{not json", encoding="utf-8")
+
+    monkeypatch.setattr(batch_run, "run_one", fake_run_one_bad)
+    m3, err3 = batch_run._trial("config_exposure", "A", False, False,
+                                "http://localhost:8080", "not-needed",
+                                "native", 0.7, 30, 2048, tag="000003")
+    assert m3 is None and err3 and "unreadable" in err3
+
+
 def test_concurrent_trials_do_not_hijack_process_stdout(monkeypatch, capsys, tmp_path):
     # M1/S3: contextlib.redirect_stdout swaps the PROCESS-GLOBAL sys.stdout;
     # two overlapping trials restore in the wrong order and leave both streams
