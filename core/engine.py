@@ -25,9 +25,15 @@ class SustainedRateLimitError(requests.RequestException):
     "rate-limited, retry later" from "endpoint dead".
     """
 
-    def __init__(self, response=None, reset_ts=None, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.response = response
+    def __init__(self, message="", response=None, reset_ts=None):
+        # Message POSITIONAL and response as a keyword: requests'
+        # RequestException pops `response`/`request` from kwargs and forwards
+        # the rest to IOError, which rejects arbitrary keywords -- the old
+        # signature (*args/**kwargs + `message=` at the raise site) raised
+        # TypeError *at the construction site*, so every sustained-429
+        # consumer (run.py exit 5, batch's RATE classifier, reset parking)
+        # was dead code behind a masking TypeError.
+        super().__init__(message, response=response)
         self.reset_ts = reset_ts  # epoch seconds, or None if unknown
 
 
@@ -331,8 +337,8 @@ class InferenceEngine:
                         and reset_ts - time.time() > _SUSTAINED_RATELIMIT_SECS):
                     try:
                         raise SustainedRateLimitError(
-                            response=resp, reset_ts=reset_ts,
-                            message=f"429 rate limit; reset at {reset_ts}")
+                            f"429 rate limit; reset at {reset_ts}",
+                            response=resp, reset_ts=reset_ts)
                     finally:
                         resp.close()
                 if attempt == max_retries:

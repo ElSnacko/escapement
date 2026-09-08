@@ -87,6 +87,72 @@ def test_sustained_error_carries_reset():
     assert err.reset_ts == 123.0
 
 
+# --- S1: the exception must actually be constructible at its raise site -----
+# The old constructor forwarded `message=` into requests.RequestException,
+# whose IOError base rejects it -> the raise site itself raised TypeError,
+# so every sustained-429 handling path (exit 5, RATE classifier, S9 parking)
+# was dead code.
+
+def test_sustained_error_message_positional():
+    err = SustainedRateLimitError("429 rate limit; reset at 123", reset_ts=123.0)
+    assert "429" in str(err)
+    assert err.reset_ts == 123.0
+
+
+def test_sustained_error_raised_through_post(monkeypatch):
+    from core.engine import InferenceEngine
+    eng = InferenceEngine("http://x", "m")
+    calls = {"n": 0}
+
+    class _Resp:
+        status_code = 429
+        headers = {"Retry-After": "3600"}  # > 5 min out => sustained
+
+        def close(self):
+            pass
+
+    def fake_post(*a, **kw):
+        calls["n"] += 1
+        return _Resp()
+
+    monkeypatch.setattr(eng.session, "post", fake_post)
+    before = time.time()
+    try:
+        eng._post("http://x/v1/chat/completions", {})
+    except TypeError:
+        raise AssertionError("constructor TypeError: raise site is broken")
+    except SustainedRateLimitError as exc:
+        assert calls["n"] == 1, "must fail fast, no retry loop"
+        assert exc.reset_ts is not None
+        assert before + 3590 <= exc.reset_ts <= time.time() + 3605
+        assert "429" in str(exc)
+    else:
+        raise AssertionError("expected SustainedRateLimitError")
+
+
+def test_batch_classifies_sustained_error_from_post(monkeypatch):
+    # The classifier (and the [RATE] path / S9 parking) reads the error STRING
+    # of the exception _post raises -- the round trip must survive str().
+    from batch_run import _is_rate_limit_err
+    from core.engine import InferenceEngine
+    eng = InferenceEngine("http://x", "m")
+
+    class _Resp:
+        status_code = 429
+        headers = {"Retry-After": "3600"}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(eng.session, "post", lambda *a, **kw: _Resp())
+    try:
+        eng._post("http://x/v1/chat/completions", {})
+    except SustainedRateLimitError as exc:
+        assert _is_rate_limit_err(f"trial crashed: {exc}")
+    else:
+        raise AssertionError("expected SustainedRateLimitError")
+
+
 # --- batch_run rate-limit classifier ----------------------------------------
 
 def test_classifier_matches_throttling():
