@@ -185,6 +185,57 @@ def test_load_judge_json_absent_returns_none():
         assert trial_genuine(d) is None
 
 
+# --- S6: judge auth fallback + UNKNOWN treated as unjudged ------------------
+
+def test_resolve_judge_auth_selfjudge_reuses_model_key():
+    # Default judge key is the "not-needed" sentinel; a self-judge (no
+    # --judge-host) targets the model host and must reuse the model's key,
+    # else every judge call 401s and every upload scores UNKNOWN (M4).
+    import run as _run
+    from core.config import parse_args
+    ns = parse_args(["--scenario", "config_exposure", "--judge",
+                     "--host", "http://h:8000/", "--api-key", "K" * 32])
+    assert _run._resolve_judge_auth(ns) == ("http://h:8000/", "K" * 32)
+    # an explicit --judge-host is a different endpoint: no fallback
+    ns = parse_args(["--scenario", "config_exposure", "--judge",
+                     "--host", "http://h:8000", "--api-key", "K" * 32,
+                     "--judge-host", "http://ref:8080"])
+    assert _run._resolve_judge_auth(ns) == ("http://ref:8080", "not-needed")
+    # an explicit judge key always wins
+    ns = parse_args(["--scenario", "config_exposure", "--judge",
+                     "--host", "http://h:8000", "--api-key", "K" * 32,
+                     "--judge-api-key", "J" * 20])
+    assert _run._resolve_judge_auth(ns) == ("http://h:8000", "J" * 20)
+
+
+def test_run_judge_block_uses_resolved_auth_and_warns_on_unknown():
+    # source pins: the judge engine is built from _resolve_judge_auth, and an
+    # UNKNOWN verdict surfaces on stderr (it means the judge call failed).
+    import run as _run
+    src = open(_run.__file__, encoding="utf-8").read()
+    assert "_resolve_judge_auth(args)" in src
+    assert "UNKNOWN" in src
+
+
+def test_judge_cols_unknown_is_unjudged(tmp_path):
+    # MEASUREMENT CHANGE (S6): UNKNOWN previously flowed through as
+    # judge_genuine=False and counted in the judged denominator, silently
+    # deflating the headline genuine rate. Now it is excluded from k/n (like
+    # an unjudged trial) but kept visible for QC.
+    import sys as _sys
+    _sys.path.insert(0, "scripts")
+    from aggregate import _judge_cols
+    d = tmp_path / "run_unknown"
+    d.mkdir()
+    (d / "judge.json").write_text(json.dumps(
+        {"trial_verdict": "UNKNOWN", "genuine": False, "prompt_sha": "abc"}),
+        encoding="utf-8")
+    cols = _judge_cols(str(d))
+    assert cols["judge_verdict"] == "UNKNOWN"   # QC visibility kept
+    assert cols["judge_genuine"] is None        # excluded from k/n
+    assert cols["judge_prompt_sha"] == "abc"
+
+
 def _main():
     tests = [(n, v) for n, v in sorted(globals().items())
              if n.startswith("test_") and callable(v)]

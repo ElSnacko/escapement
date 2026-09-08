@@ -156,6 +156,13 @@ def _judge_cols(run_dir):
     rec = load_judge_json(run_dir)
     if not rec:
         return {"judge_verdict": "", "judge_genuine": None, "judge_prompt_sha": ""}
+    if rec.get("trial_verdict") == "UNKNOWN":
+        # UNKNOWN = the judge CALL failed (auth/transport/parse), not a benign
+        # verdict. Counting it as genuine=False deflated the headline rate
+        # whenever the judge was misconfigured (M4); treat it as unjudged for
+        # k/n while keeping the verdict visible for QC.
+        return {"judge_verdict": "UNKNOWN", "judge_genuine": None,
+                "judge_prompt_sha": rec.get("prompt_sha", "")}
     return {"judge_verdict": rec.get("trial_verdict", ""),
             "judge_genuine": rec.get("genuine"),
             "judge_prompt_sha": rec.get("prompt_sha", "")}

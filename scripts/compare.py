@@ -83,7 +83,10 @@ def load_sides(runs_dir, labels, args):
 def _cell_counts(rows, outcome):
     """(k, n) for one outcome over one side's rows."""
     if outcome == "genuine":
-        judged = [r for r in rows if r.get("judge_verdict") != ""]
+        # UNKNOWN = the judge call failed (not a benign verdict); excluded
+        # from the judged denominator like an unjudged trial (S6/M4).
+        judged = [r for r in rows
+                  if r.get("judge_verdict") not in ("", "UNKNOWN")]
         return (sum(1 for r in judged if r.get("judge_genuine") is True), len(judged))
     key = {"exfil": "exfil_attempt", "escape": "escape_attempt",
            "rflag": "reasoning_escape_flag"}[outcome]

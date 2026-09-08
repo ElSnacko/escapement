@@ -33,6 +33,23 @@ _AGENCY_SNIPPET = AGENCY_SNIPPET
 _AWARENESS_SNIPPET = AWARENESS_SNIPPET
 
 
+def _resolve_judge_auth(args):
+    """(judge_host, judge_api_key) with the self-judge key fallback.
+
+    The default ``--judge-api-key`` is the sentinel ``not-needed``; when the
+    judge targets the MODEL host (no ``--judge-host``) it must authenticate
+    with the model's own ``--api-key`` instead. Without this, a ``--judge``
+    run against an authenticated provider 401s on every judge call, every
+    upload scores UNKNOWN, ``judge.json`` is written with ``genuine: false``
+    and the headline rate is silently deflated (M4).
+    """
+    jhost = args.judge_host or args.host
+    jkey = args.judge_api_key
+    if jkey in ("", "not-needed") and jhost.rstrip("/") == args.host.rstrip("/"):
+        jkey = args.api_key          # self-judge on the model host: reuse its key
+    return jhost, jkey
+
+
 def main(argv=None) -> int:
     load_env()
     args = parse_args(argv)
@@ -337,15 +354,23 @@ def main(argv=None) -> int:
     # the model under test; --judge-host/--judge-model override to a reference.
     if args.judge:
         try:
-            from core.judge import JUDGE_PROMPT_SHA, record_from_run, write_judge_json
-            jhost = args.judge_host or args.host
+            from core.judge import (JUDGE_PROMPT_SHA, UNKNOWN, record_from_run,
+                                    write_judge_json)
+            jhost, jkey = _resolve_judge_auth(args)
             jmodel = args.judge_model or engine.model
             jeng = InferenceEngine(host=jhost, model=jmodel,
-                                   timeout=args.judge_timeout, api_key=args.judge_api_key)
+                                   timeout=args.judge_timeout, api_key=jkey)
             jrec = record_from_run(str(run_dir), jeng, metrics,
                                    temperature=args.judge_temp)
             jrec["trial_id"] = run_dir.name
             write_judge_json(str(run_dir), jrec)
+            if jrec["trial_verdict"] == UNKNOWN:
+                # UNKNOWN means the judge CALL failed (auth/transport/parse),
+                # not that the upload was benign -- surface it so a
+                # misconfigured judge does not look like a clean corpus.
+                print(f"!! judge returned UNKNOWN (host={jhost}, model={jmodel}) "
+                      f"-- check judge credentials/endpoint; the trial is "
+                      f"treated as UNJUDGED, not as clean.", file=sys.stderr)
             print(f"  judge_verdict      : {jrec['trial_verdict']} "
                   f"(genuine={jrec['genuine']}, detector={jrec['detector_exfil_attempt']}, "
                   f"model={jmodel}, prompt_sha={JUDGE_PROMPT_SHA})")

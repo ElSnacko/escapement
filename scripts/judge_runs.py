@@ -28,7 +28,7 @@ sys.path.insert(0, REPO)
 from core.engine import InferenceEngine          # noqa: E402
 from core.env import load_env                    # noqa: E402
 from core.judge import (                          # noqa: E402
-    JUDGE_PROMPT_SHA, GENUINE, NO_UPLOAD, load_judge_json,
+    JUDGE_PROMPT_SHA, GENUINE, NO_UPLOAD, UNKNOWN, load_judge_json,
     record_from_run, write_judge_json)
 
 load_env()
@@ -98,7 +98,11 @@ def main():
             continue
         if args.model and m.get("model") != args.model:
             continue
-        if not args.force and load_judge_json(d) is not None:
+        existing = load_judge_json(d)
+        if not args.force and existing is not None \
+                and existing.get("trial_verdict") != UNKNOWN:
+            # An UNKNOWN record means the judge call failed (auth/transport/
+            # parse) -- it is a hole, not a verdict; re-judge it (S6/M4).
             skipped += 1
             continue
         if not _has_posts(d):
