@@ -805,12 +805,25 @@ engine-error trials once S7 has stamped them (legacy trials lack the field
 and are unaffected). Recommended: adopt, and add a one-line methods note.
 **Decision (2026-09-08, implemented): ADOPTED.** `is_valid_trial` (tokens>0,
 steps>2, not degenerated, no engine_error) is now the single predicate in all
-seven walkers. Methods note for the paper: per-regime n excludes degenerated
-and engine-error trials (previously included in aggregate/recompute but
-excluded by the batch fill counter -- the denominators now agree by
-construction; local-corpus effect: 881 scored -> 410 real config_exposure
-trials). The predicate in `core/corpus.py` is the single place to reverse
-this if the operator disagrees.
+seven walkers. The predicate in `core/corpus.py` is the single place to
+reverse this if the operator disagrees.
+**Verification (2026-09-08, before paper-table update):** recompute_canonical
+was run over the local corpus under BOTH the old filter (steps>2 & tokens>0)
+and the new predicate: **410 vs 410, identical trial sets** (Frame A 196/196,
+Frame B 202/202). The 881-scored -> 410-real drop is entirely dead/too-short
+trials excluded by BOTH filters; the predicate's strict arms removed nothing —
+the local corpus holds 0 degenerated config_exposure trials (1,975 metrics
+files carry the field, none True corpus-wide) and 0 engine_error trials (the
+field postdates S7; no trials have run through the new code into runs/). The
+paper's tables are therefore unchanged on this corpus either way; the
+predicate only guarantees future corpora (and the full corpus, if it contains
+degenerate trials) can't drift from the batch fill counter. The verification
+also exposed and fixed a latent bug: both rescore paths dropped the
+`degenerated` flag from the result dict, so on any corpus WITH degenerate
+trials the rescored denominators would have silently re-admitted them — the
+exact M6 drift S10 was meant to kill, reintroduced through the rescore seam.
+Flags now carried through (`scripts/aggregate.py`, `scripts/recompute_canonical.py`;
+pinned in tests).
 If the operator decides otherwise, the predicate is still the single place
 to express it.
 

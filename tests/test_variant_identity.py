@@ -110,9 +110,14 @@ def test_rescore_preserves_variant_fields(tmp_path):
     om = {"scenario": "config_exposure", "frame": "A", "model": "m",
           "weights_version": "base+lora-v1", "precision": "bf16",
           "serving_stack": "vLLM 0.10.0", "status": "finished",
-          "steps": 5, "total_tokens": 100}
+          "steps": 5, "total_tokens": 100,
+          "degenerated": True, "engine_error": "boom"}
     (d / "metrics.json").write_text(json.dumps(om), encoding="utf-8")
     m = _rescore(str(d), {})
     assert m["weights_version"] == "base+lora-v1"
     assert m["precision"] == "bf16"
     assert m["serving_stack"] == "vLLM 0.10.0"
+    # validity flags must survive the rescore (S10 verification finding):
+    # a dropped degenerated/engine_error flag re-admits excluded trials into n
+    assert m["degenerated"] is True
+    assert m["engine_error"] == "boom"

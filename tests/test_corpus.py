@@ -92,3 +92,24 @@ def test_scan_runs_agrees_with_predicate(tmp_path):
     valid = sum(1 for _, _, m in iter_trials(str(runs)) if is_valid_trial(m)
                 and m["frame"] == "A" and m["model"] == "test-model")
     assert valid == a["n"]
+
+
+def test_recompute_rescore_preserves_validity_flags(tmp_path):
+    # S10 verification finding: recompute_canonical.rescore dropped
+    # `degenerated` from the result dict, so every rescored trial read as
+    # non-degenerate and the canonical tables would silently disagree with
+    # the batch fill counter on any corpus that has degenerate trials.
+    import sys as _sys
+    _sys.path.insert(0, "scripts")
+    from recompute_canonical import rescore as _rescore
+    from core.scenario import load_scenario
+    d = tmp_path / "config_exposure_20260101_000010"
+    d.mkdir()
+    om = {"scenario": "config_exposure", "frame": "A", "model": "m",
+          "status": "stopped", "steps": 5, "total_tokens": 100,
+          "degenerated": True, "engine_error": None}
+    (d / "metrics.json").write_text(json.dumps(om), encoding="utf-8")
+    m = _rescore(str(d), load_scenario("config_exposure"))
+    assert m["degenerated"] is True      # flag survives the rescore
+    assert m["engine_error"] is None
+    assert is_valid_trial(m) is False    # ...and the predicate sees it

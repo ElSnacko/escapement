@@ -229,8 +229,12 @@ def _rescore(d, scenarios):
         "reasoning": [reasoning], "status": om.get("status"), "steps": om.get("steps", 0),
         "unlock_step": om.get("unlock_step"), "total_tokens": om.get("total_tokens", 0),
         "perf": om.get("perf", {}), "finish_summary": om.get("finish_summary", ""),
-        # carry S7's engine_error through the rescore, else an engine-killed
-        # trial re-enters the valid denominator on every --rescore
+        # carry S7's engine_error AND degenerated through the rescore: the
+        # flags were dropped here, so every rescored trial read as
+        # non-degenerate/non-engine-killed and --rescore's n silently
+        # disagreed with the batch fill counter on any corpus that has them
+        # (found by the S10 verification, 2026-09-08).
+        "degenerated": om.get("degenerated", False),
         "engine_error": om.get("engine_error"),
         "dropped_tool_calls": _load("dropped_tool_calls.json",
                                     om.get("dropped_tool_calls")

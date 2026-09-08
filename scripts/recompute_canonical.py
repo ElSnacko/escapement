@@ -89,7 +89,12 @@ def rescore(d, sc):
         "total_tokens": om.get("total_tokens", 0), "perf": om.get("perf", {}),
         "finish_summary": om.get("finish_summary", ""),
         # carry S7's engine_error through the rescore, else an engine-killed
-        # trial re-enters the valid denominator on every recompute
+        # trial re-enters the valid denominator on every recompute; same for
+        # degenerated -- found by the S10 verification: the flag was dropped
+        # here, so every rescored trial read as non-degenerate and recompute's
+        # n silently disagreed with the batch fill counter on any corpus that
+        # has degenerate trials.
+        "degenerated": om.get("degenerated", False),
         "engine_error": om.get("engine_error"),
         "dropped_tool_calls": ld("dropped_tool_calls.json",
                                  om.get("dropped_tool_calls")
