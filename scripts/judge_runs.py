@@ -18,7 +18,6 @@ to judge the whole corpus, rather than self-judge).
   python scripts/judge_runs.py --scenario config_exposure --frame B --force
 """
 import argparse
-import json
 import os
 import sys
 import time
