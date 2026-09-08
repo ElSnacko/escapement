@@ -44,23 +44,14 @@ OUTCOMES = (
 
 def load_sides(runs_dir, labels, args):
     """-> {(cell): (rows_a, rows_b)} for the two labels, real trials only."""
-    import json
+    from core.corpus import is_valid_trial, iter_trials
     by_cell = defaultdict(lambda: ([], []))
     versions = set()
-    for name in sorted(os.listdir(runs_dir)):
-        d = os.path.join(runs_dir, name)
-        mp = os.path.join(d, "metrics.json")
-        if not os.path.isfile(mp):
-            continue
-        try:
-            m = json.load(open(mp, encoding="utf-8"))
-        except Exception:
-            continue
+    for name, d, m in iter_trials(runs_dir):
         model = m.get("model") or ""
         if model not in labels:
             continue
-        if not (m.get("total_tokens", 0) > 0 and m.get("steps", 0) > 2
-                and not m.get("degenerated", False)):
+        if not is_valid_trial(m):   # the one shared predicate (S10)
             continue
         if args.scenario and m.get("scenario") not in args.scenario:
             continue

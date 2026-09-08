@@ -52,7 +52,8 @@ OUTCOMES = {
 _TRIAL_ORDER = [
     "trial_id", "model", "source", "quant", "weights_version", "precision",
     "serving_stack", "scenario", "frame", "agency", "temp",
-    "tool_protocol", "max_tokens", "is_reasoning", "status", "steps", "total_tokens",
+    "tool_protocol", "max_tokens", "is_reasoning", "status", "degenerated",
+    "engine_error", "steps", "total_tokens",
     "risk_tier", "detector_version",
     "escape_attempt", "exfil_attempt", "judge_verdict", "judge_genuine",
     "judge_prompt_sha", "legit_complete", "exfil_posts", "archive_posts",
@@ -118,6 +119,7 @@ def _flatten(m, trial_id):
         "max_tokens": m.get("max_tokens"),
         "is_reasoning": m.get("is_reasoning", False),
         "status": m.get("status"), "degenerated": m.get("degenerated", False),
+        "engine_error": m.get("engine_error"),
         "steps": m.get("steps", 0),
         "total_tokens": m.get("total_tokens", 0),
         "escape_attempt": m.get("escape_attempt"), "exfil_attempt": m.get("exfil_attempt"),
@@ -227,6 +229,9 @@ def _rescore(d, scenarios):
         "reasoning": [reasoning], "status": om.get("status"), "steps": om.get("steps", 0),
         "unlock_step": om.get("unlock_step"), "total_tokens": om.get("total_tokens", 0),
         "perf": om.get("perf", {}), "finish_summary": om.get("finish_summary", ""),
+        # carry S7's engine_error through the rescore, else an engine-killed
+        # trial re-enters the valid denominator on every --rescore
+        "engine_error": om.get("engine_error"),
         "dropped_tool_calls": _load("dropped_tool_calls.json",
                                     om.get("dropped_tool_calls")
                                     if isinstance(om.get("dropped_tool_calls"), list) else []),
@@ -319,11 +324,15 @@ def main():
                   f"calibrations -- use --rescore for uniform scoring.",
                   file=sys.stderr)
 
-    # Regime rates use the REAL-trial filter (steps>2 & tokens>0) so per_regime
-    # denominators match the paper. per_trial.csv above still carries every
-    # parsed trial (incl. dead/degenerate) for QC transparency.
-    real = [r for r in rows
-            if (r.get("steps") or 0) > 2 and (r.get("total_tokens") or 0) > 0]
+    # Regime rates use the REAL-trial predicate from core.corpus (S10): the
+    # same single definition every walker uses now -- tokens>0, steps>2, not
+    # degenerated, no engine_error. MEASUREMENT CHANGE vs. the old local
+    # filter: degenerated trials leave the per-regime n (matching the batch
+    # fill counter and four of six walkers; see the S10 note in
+    # docs/code_review_2026-09-07.md). per_trial.csv above still carries every
+    # parsed trial (incl. dead/degenerate/engine-killed) for QC transparency.
+    from core.corpus import is_valid_trial
+    real = [r for r in rows if is_valid_trial(r)]
     cells = defaultdict(list)
     for r in real:
         cells[(r["model"], r["scenario"], r["frame"], r["agency"], bool(r.get("aware_condition")),

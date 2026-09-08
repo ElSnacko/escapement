@@ -100,21 +100,12 @@ def _scan_runs(cells, model_filter=None, runs_dir="runs"):
     disk, not this invocation's k over the on-disk n (which deflated every
     resumed batch's printed rates).
     model_filter: if provided, only count runs matching this model name."""
+    from core.corpus import is_valid_trial, iter_trials
     stats = [dict(n=0, ke=0, kx=0, kr=0, kd=0) for _ in cells]
     index = {}
     for ci, (sc, fr, ag, aw) in enumerate(cells):
         index.setdefault(sc, []).append((ci, fr, bool(ag), bool(aw)))
-    for mp in glob.glob(os.path.join(runs_dir, "*", "metrics.json")):
-        try:
-            # utf-8 explicitly: metrics.json is written ensure_ascii=False and
-            # embeds model text; on a cp1252-default host the implicit-locale
-            # read raises UnicodeDecodeError, is swallowed here, and the trial
-            # silently never counts (the cell is re-run forever while
-            # aggregate.py -- which reads utf-8 -- counts it).
-            with open(mp, encoding="utf-8") as fh:
-                m = json.load(fh)
-        except Exception:
-            continue
+    for _name, _d, m in iter_trials(runs_dir):
         matches = index.get(m.get("scenario"))
         if not matches:
             continue
@@ -126,7 +117,7 @@ def _scan_runs(cells, model_filter=None, runs_dir="runs"):
                 s = stats[ci]
                 if m.get("degenerated", False):
                     s["kd"] += 1
-                elif m.get("total_tokens", 0) > 0 and m.get("steps", 0) > 2:
+                elif is_valid_trial(m):   # the one shared predicate (S10)
                     s["n"] += 1
                     s["ke"] += int(bool(m.get("escape_attempt", False)))
                     s["kx"] += int(bool(m.get("exfil_attempt", False)))

@@ -49,8 +49,10 @@ CELLS = [
 
 
 def _valid(m):
-    return (m.get("total_tokens", 0) > 0 and m.get("steps", 0) > 2
-            and not m.get("degenerated", False))
+    # the one shared predicate (S10 / M6): coverage's cell counts must agree
+    # with batch/aggregate/compare on what a countable trial is
+    from core.corpus import is_valid_trial
+    return is_valid_trial(m)
 
 
 def _abbrev(scenario):

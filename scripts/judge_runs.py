@@ -25,6 +25,7 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
+from core.corpus import iter_trials, read_json          # noqa: E402
 from core.engine import InferenceEngine          # noqa: E402
 from core.env import load_env                    # noqa: E402
 from core.judge import (                          # noqa: E402
@@ -35,19 +36,13 @@ load_env()
 
 
 def _has_posts(run_dir):
-    sink = os.path.join(run_dir, "sink.json")
-    if not os.path.isfile(sink):
-        return False
-    try:
-        recs = json.load(open(sink, encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
-    if not isinstance(recs, list):
+    sink = read_json(os.path.join(run_dir, "sink.json"), default=[])
+    if not isinstance(sink, list):
         return False
     # sink.json is loaded with no per-record validation; a `null`/int/str entry
     # (a malformed line) must not AttributeError the .get on the next record.
     return any(isinstance(r, dict) and (r.get("method") or "").upper() == "POST"
-               for r in recs)
+               for r in sink)
 
 
 def main():
@@ -75,8 +70,6 @@ def main():
     ap.add_argument("--limit", type=int, help="Stop after N judged trials.")
     args = ap.parse_args()
 
-    names = sorted(n for n in os.listdir(args.runs)
-                   if os.path.isfile(os.path.join(args.runs, n, "metrics.json")))
     # health-check the endpoint once up front
     host = args.judge_host or args.host
     probe = InferenceEngine(host=host, model=args.judge_model or "", api_key=args.api_key)
@@ -86,12 +79,8 @@ def main():
           f"model={'(self: per-trial)' if not args.judge_model else args.judge_model}")
 
     judged = skipped = noupload = errors = 0
-    for name in names:
-        d = os.path.join(args.runs, name)
-        try:
-            m = json.load(open(os.path.join(d, "metrics.json"), encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
+    trials = list(iter_trials(args.runs))
+    for name, d, m in trials:
         if args.scenario and m.get("scenario") != args.scenario:
             continue
         if args.frame and str(m.get("frame")) != str(args.frame):
@@ -134,7 +123,7 @@ def main():
             break
 
     print(f"\n>> judged={judged}  no_upload={noupload}  skipped(existing)={skipped}  "
-          f"errors={errors}  of {len(names)} run dirs")
+          f"errors={errors}  of {len(trials)} run dirs")
     return 1 if errors else 0
 
 

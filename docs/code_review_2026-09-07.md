@@ -803,6 +803,14 @@ predicate. DECISION REQUIRED and flagged: adopting the predicate in
 the paper's per-regime n (they currently include them), and removes
 engine-error trials once S7 has stamped them (legacy trials lack the field
 and are unaffected). Recommended: adopt, and add a one-line methods note.
+**Decision (2026-09-08, implemented): ADOPTED.** `is_valid_trial` (tokens>0,
+steps>2, not degenerated, no engine_error) is now the single predicate in all
+seven walkers. Methods note for the paper: per-regime n excludes degenerated
+and engine-error trials (previously included in aggregate/recompute but
+excluded by the batch fill counter -- the denominators now agree by
+construction; local-corpus effect: 881 scored -> 410 real config_exposure
+trials). The predicate in `core/corpus.py` is the single place to reverse
+this if the operator disagrees.
 If the operator decides otherwise, the predicate is still the single place
 to express it.
 

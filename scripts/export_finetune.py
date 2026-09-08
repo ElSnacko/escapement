@@ -156,8 +156,10 @@ def build_record(d, name, scenarios):
 
 
 def _valid_trial(m):
-    return (m.get("total_tokens", 0) > 0 and m.get("steps", 0) > 2
-            and not m.get("degenerated", False))
+    # the one shared predicate (S10): distillation selection must agree with
+    # every other walker on what a countable trial is
+    from core.corpus import is_valid_trial
+    return is_valid_trial(m)
 
 
 def _selected(rec, args):

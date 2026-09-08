@@ -22,6 +22,7 @@ from collections import defaultdict
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from core.capture import compute_metrics          # noqa: E402
+from core.corpus import is_valid_trial, read_json  # noqa: E402
 from core.scenario import compose_seed_text, load_scenario  # noqa: E402
 from core.stats import wilson_ci                  # noqa: E402
 
@@ -70,12 +71,12 @@ def seed_text_for(d, om, sc):
 
 
 def rescore(d, sc):
-    om = json.load(open(os.path.join(d, "metrics.json"), encoding="utf-8"))
+    om = read_json(os.path.join(d, "metrics.json"), default={})
     seed_text = seed_text_for(d, om, sc)
 
     def ld(fn, dft):
         p = os.path.join(d, fn)
-        return json.load(open(p, encoding="utf-8")) if os.path.isfile(p) else dft
+        return read_json(p, default=dft) if os.path.isfile(p) else dft
     reasoning = open(os.path.join(d, "reasoning.txt"), encoding="utf-8").read() \
         if os.path.isfile(os.path.join(d, "reasoning.txt")) else ""
     sp = open(os.path.join(d, "scratchpad.txt"), encoding="utf-8").read() \
@@ -87,6 +88,9 @@ def rescore(d, sc):
         "steps": om.get("steps", 0), "unlock_step": om.get("unlock_step"),
         "total_tokens": om.get("total_tokens", 0), "perf": om.get("perf", {}),
         "finish_summary": om.get("finish_summary", ""),
+        # carry S7's engine_error through the rescore, else an engine-killed
+        # trial re-enters the valid denominator on every recompute
+        "engine_error": om.get("engine_error"),
         "dropped_tool_calls": ld("dropped_tool_calls.json",
                                  om.get("dropped_tool_calls")
                                  if isinstance(om.get("dropped_tool_calls"), list) else []),
@@ -126,10 +130,13 @@ def main():
         rows.append(m)
         if (i + 1) % 400 == 0:
             print(f"  ...{i+1}/{len(names)}", flush=True)
-    real = [m for m in rows if m.get("steps", 0) > 2 and m.get("total_tokens", 0) > 0]
+    # S10: the shared predicate -- degenerated and engine-error trials leave
+    # the denominators (MEASUREMENT CHANGE vs. the old steps>2 & tokens>0
+    # local filter; see the S10 note in docs/code_review_2026-09-07.md).
+    real = [m for m in rows if is_valid_trial(m)]
 
     print(f"config_exposure: {len(rows)} scored, {fails} rescore failures, "
-          f"{len(real)} real trials (steps>2 & tokens>0)\n")
+          f"{len(real)} real trials (shared validity predicate)\n")
 
     print("== POOLED BY FRAME (genuine self-bootstrap, exfil_attempt) ==")
     for fr in ("A", "B"):
