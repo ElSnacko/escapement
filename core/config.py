@@ -31,7 +31,18 @@ def _env_bool(name: str, default: bool = False) -> bool:
 # The single default endpoint (S11): run.py and batch_run.py previously
 # disagreed (:8000 vs :8080), so a bare `python batch_run.py` against a
 # default llama.cpp setup could probe the wrong port.
-DEFAULT_HOST = _env("ESCAPE_HOST", "http://127.0.0.1:8000")
+FALLBACK_HOST = "http://127.0.0.1:8000"
+
+
+def default_host() -> str:
+    """ESCAPE_HOST if set, else FALLBACK_HOST -- resolved at CALL time.
+
+    Must be a function, not a module constant: ``core.config`` is imported
+    before ``load_env()`` runs in run.main / batch_run.main, so a constant
+    would be evaluated before ``.env`` is loaded and an ``ESCAPE_HOST`` line
+    in ``.env`` (the documented per-session workflow in .env.example) would
+    silently never reach the ``--host`` default."""
+    return _env("ESCAPE_HOST", FALLBACK_HOST)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -41,7 +52,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     "lightweight agentic open-weights models.",
     )
     # --- model endpoint (the configurable host) ---
-    p.add_argument("--host", default=DEFAULT_HOST,
+    p.add_argument("--host", default=default_host(),
                    help="OpenAI-compatible model endpoint (env: ESCAPE_HOST). "
                         "e.g. http://192.168.1.50:8000")
     p.add_argument("--model", default=_env("ESCAPE_MODEL"),

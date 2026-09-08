@@ -73,11 +73,9 @@ def main(argv=None, result=None) -> int:
               f"if it does upload.", file=sys.stderr)
         # Distinct exit code (4) so a "frame not applicable to this scenario"
         # refusal is not conflated with endpoint-unreachable (2) or
-        # sandbox-unusable (3). NOTE: batch_run._trial does not consume this
-        # code yet (it infers outcome from the run dir), so in batch mode the
-        # refusal still surfaces via the captured stderr message above, not
-        # as a distinct "skipped" cell -- wiring that through (without letting
-        # it trip the consecutive-error abort) is a follow-up.
+        # sandbox-unusable (3). batch_run._trial maps this code to a
+        # "skipped:" result that the accumulator keeps out of both the error
+        # count and the dead-endpoint abort counter (S8).
         return 4
 
     # --- engine + model resolution ---

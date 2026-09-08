@@ -31,7 +31,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 from run import main as run_one
-from core.config import DEFAULT_HOST
+from core.config import default_host
 from core.engine import SustainedRateLimitError
 from core.env import load_env
 from core.stats import fmt_rate, wilson_ci
@@ -320,7 +320,7 @@ def main():
                          "forwarded as --scenario-path to every trial. A CLI "
                          "axis flag explicitly given alongside --pack wins over "
                          "pack.json. See docs/scenario_packs.md.")
-    ap.add_argument("--host", default=DEFAULT_HOST,
+    ap.add_argument("--host", default=default_host(),
                     help="Model endpoint(s). Comma-separated for multi-endpoint "
                          "(dual-instance) mode -- workers round-robin across endpoints.")
     ap.add_argument("--api-key", default=os.environ.get("ESCAPE_API_KEY", "not-needed"),
@@ -661,13 +661,13 @@ def main():
                 ci, m, err = fut.result()
                 with acc_lock:
                     a = acc[ci]
-                    if m is None:
-                        if err and err.startswith("skipped:"):
-                            # a refusal (frame not applicable), not a failure:
-                            # neither an error nor a dead-endpoint signal
-                            skipped.add(ci)
-                        else:
-                            a["errors"] += 1
+                    if m is None and err and err.startswith("skipped:"):
+                        # a refusal (frame not applicable), not a failure:
+                        # neither the error count nor the dead-endpoint
+                        # consecutive counter moves (S8).
+                        skipped.add(ci)
+                    elif m is None:
+                        a["errors"] += 1
                         if _is_rate_limit_err(err):
                             # Provider throttling (429 / 402 / at-capacity), not
                             # a dead endpoint -- must NOT trip the dead-endpoint

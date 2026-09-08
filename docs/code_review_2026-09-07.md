@@ -839,3 +839,34 @@ the same fixture set.
   `docker inspect -f "{{.State.Running}}" <name>`; exit with
   `start the pool: python scripts/sandbox_pool.py up N` if any is not
   `true`.
+
+---
+
+## Post-implementation verification (2026-09-08)
+
+All eleven specs were implemented on this branch (`be2c08a`..`f10755e`) and
+re-verified against the original repros: A1 returns an error tuple, M3
+returns the real failure text, a Frame E cell over a no-upload scenario
+returns `skipped:` with no run dir, the process stdout stays intact under
+overlapping trials, and the sustained-429 path raises the intended exception.
+Three defects were found in the implementation and fixed in the commit after
+`f10755e`:
+
+1. **S11 regression:** `DEFAULT_HOST` was a module-level constant evaluated
+   when `core.config` was imported, which is before `load_env()` runs in
+   either `main()`. An `ESCAPE_HOST` line in `.env` (the documented
+   per-session workflow) therefore never reached the `--host` default in
+   run.py or batch_run. Replaced by `default_host()`, resolved at parse time;
+   `test_default_host_resolves_after_load_env` pins it through a real `.env`.
+2. **S8 deviation:** a `skipped:` result was added to the skipped set but
+   then fell through into the rate-limit/else branch and incremented
+   `consecutive_err`, so refusals could still trip the pass abort. Now an
+   `elif`; `test_skipped_result_reaches_neither_counter` executes the
+   accumulator block against a fake result to pin both counters.
+3. **S2 stale comment:** the exit-4 block still said batch does not consume
+   the code; after S8 it does. Comment corrected.
+
+Open item for the operator: S10's predicate decision was adopted by the
+implementer. Confirm the reported local-corpus figure (881 scored -> 410 real
+config_exposure trials) against the pre-S10 predicate before updating the
+paper's tables; the difference should consist only of degenerated trials.

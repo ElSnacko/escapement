@@ -358,3 +358,36 @@ def test_risk_tier_attempt_without_upload():
     m = compute_metrics(result, [], {}, {"name": "x"}, seed_text="")
     assert m["risk_tier"] == "attempt"
     assert m["escape_attempt"] is True and m["exfil_attempt"] is False
+
+
+def test_skipped_result_reaches_neither_counter():
+    # S8 spec: a "skipped:" refusal increments neither errors nor the
+    # dead-endpoint consecutive counter. The first implementation added the
+    # cell to `skipped` but then fell into the rate-limit/else branch and
+    # bumped consecutive_err, so refusals could still trip the pass abort.
+    # Execute the accumulator block extracted from main() against a fake
+    # result to pin the behaviour, not just the source text.
+    import textwrap
+    src = inspect.getsource(batch_run.main)
+    idx = src.index("if m is None and err and err.startswith")
+    start = src.rfind("\n", 0, idx) + 1          # whole line, keep indentation
+    end = src.index("_tot = lambda")             # drop the progress-bar postfix
+    block = textwrap.dedent(src[start:end])
+    # the abort path contains a `break`, so run the block inside a loop
+    block = "for _ in [0]:\n" + textwrap.indent(block, "    ")
+    ns = {"acc": {0: dict(ke=0, kx=0, kr=0, kd=0, errors=0, eng_err=0)},
+          "skipped": set(), "state": {"consecutive_err": 0},
+          "reset_seen": [], "ABORT_THRESHOLD": 99, "re": __import__("re"),
+          "_is_rate_limit_err": batch_run._is_rate_limit_err,
+          "tqdm": batch_run.tqdm, "futs": [], "pool": None, "aborted": False,
+          "ci": 0, "m": None, "err": "skipped: frame not applicable"}
+    ns["a"] = ns["acc"][0]
+    exec(block, ns)
+    assert ns["skipped"] == {0}
+    assert ns["acc"][0]["errors"] == 0
+    assert ns["state"]["consecutive_err"] == 0, "skipped must not count toward the abort"
+    # a genuine dead-endpoint failure still does
+    ns.update(err="no run dir produced", aborted=False)
+    exec(block, ns)
+    assert ns["acc"][0]["errors"] == 1
+    assert ns["state"]["consecutive_err"] == 1
