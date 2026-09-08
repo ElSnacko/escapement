@@ -31,6 +31,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 from run import main as run_one
+from core.engine import SustainedRateLimitError
 from core.env import load_env
 from core.stats import fmt_rate, wilson_ci
 
@@ -192,6 +193,11 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
         # error, never a batch-killer (S8/A1 -- SystemExit is a
         # BaseException, so the generic handler below never saw it).
         return None, f"trial argv rejected (exit {exc.code})"
+    except SustainedRateLimitError as exc:
+        # A window/sustained limit (daily budget, at-capacity): carry the
+        # advertised reset in the error string so the pass loop can PARK
+        # until the window lifts (S9) instead of burning passes on it.
+        return None, f"sustainedratelimit reset_ts={exc.reset_ts or 0:.0f}"
     except Exception as exc:  # noqa: BLE001 -- never let one trial kill the batch
         return None, f"trial crashed: {exc}"
     finally:
@@ -631,6 +637,7 @@ def main():
 
         pbar = tqdm(total=len(tasks), desc="batch", unit="trial", dynamic_ncols=True)
         state = {"consecutive_err": 0}
+        reset_seen = []   # advertised rate-limit resets seen this pass (S9)
         ABORT_THRESHOLD = min(args.workers * 2, 16)
         aborted = False
         with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -653,6 +660,9 @@ def main():
                             # reset; max_passes still bounds the batch.
                             state["consecutive_err"] = 0
                             tqdm.write(f"  [RATE] {err[:120]}")
+                            _mm = re.search(r"reset_ts=(\d+)", err or "")
+                            if _mm:
+                                reset_seen.append(int(_mm.group(1)))
                         else:
                             state["consecutive_err"] += 1
                             if state["consecutive_err"] >= ABORT_THRESHOLD:
@@ -689,9 +699,21 @@ def main():
             print(f"\n  >> all cells filled after pass {pass_num + 1}")
             break
         if pass_num < args.max_passes - 1:
-            print(f"\n  >> {still_needed} trials still needed across cells, "
-                  f"sleeping 30s before pass {pass_num + 2}...")
-            time.sleep(30)
+            if reset_seen:
+                # A provider advertised its rate-limit window (S1/S9): park
+                # until the latest advertised reset (bounded at 1h) instead of
+                # retrying into a window that cannot lift and burning passes.
+                wait = min(max(30, max(reset_seen) - time.time()), 3600)
+                wake = time.time() + wait
+                print(f"\n  >> {still_needed} trials still needed; provider rate "
+                      f"window advertised -- parking until "
+                      f"{time.strftime('%H:%M:%S', time.localtime(wake))} "
+                      f"({wait:.0f}s) before pass {pass_num + 2}...")
+                time.sleep(wait)
+            else:
+                print(f"\n  >> {still_needed} trials still needed across cells, "
+                      f"sleeping 30s before pass {pass_num + 2}...")
+                time.sleep(30)
         else:
             print(f"\n  >> {still_needed} trials still needed but max_passes "
                   f"({args.max_passes}) reached. Cells may be under-filled.")

@@ -238,6 +238,38 @@ def test_main_loop_handles_skipped_cells_without_counting_errors():
     assert "in skipped" in src
 
 
+def test_sustained_rate_limit_round_trips_reset_ts(monkeypatch, tmp_path):
+    # S9: a sustained 429 must come back as an error string the batch both
+    # classifies as RATE (not dead-endpoint) and can parse the advertised
+    # reset out of, so the pass loop can park until the window lifts.
+    import re
+    import time as _time
+    from core.engine import SustainedRateLimitError
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "runs").mkdir()
+    T = _time.time() + 1234
+
+    def fake(argv=None, **kw):
+        raise SustainedRateLimitError("429 rate limit; reset soon", reset_ts=T)
+
+    monkeypatch.setattr(batch_run, "run_one", fake)
+    m, err = batch_run._trial("config_exposure", "A", False, False,
+                              "http://h", "not-needed", "native", 0.7, 5, 512,
+                              tag="rl")
+    assert m is None
+    assert batch_run._is_rate_limit_err(err), err
+    mm = re.search(r"reset_ts=(\d+)", err)
+    assert mm and int(mm.group(1)) == int(f"{T:.0f}"), err
+
+
+def test_pass_loop_parks_until_advertised_reset():
+    # source pin: the pass loop reads reset_ts= out of the pass's errors and
+    # parks until the advertised wake time instead of a fixed 30s.
+    src = inspect.getsource(batch_run.main)
+    assert r"reset_ts=(\d+)" in src
+    assert "parking until" in src
+
+
 def test_concurrent_trials_do_not_hijack_process_stdout(monkeypatch, capsys, tmp_path):
     # M1/S3: contextlib.redirect_stdout swaps the PROCESS-GLOBAL sys.stdout;
     # two overlapping trials restore in the wrong order and leave both streams
