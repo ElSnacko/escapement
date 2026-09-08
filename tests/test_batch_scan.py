@@ -147,6 +147,41 @@ def test_batch_json_reads_are_utf8_and_guarded(monkeypatch, tmp_path):
     assert m3 is None and err3 and "unreadable" in err3
 
 
+def test_trial_api_key_via_env_and_stderr_tail(monkeypatch, tmp_path, capsys):
+    # S5/M3: _trial passed --api-key on argv, so parse_args' secret warning
+    # fired on EVERY trial and, as the first stderr line, replaced the real
+    # failure message in the [:200] head. The key must travel via
+    # ESCAPE_API_KEY and _trial must report the TAIL of stderr.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ESCAPE_API_KEY", raising=False)
+    key = "sk-or-v1-" + "a" * 48
+    m, err = batch_run._trial("config_exposure", "A", False, False,
+                              "http://127.0.0.1:1", key, "native",
+                              0.7, 5, 512, tag="s5")
+    assert m is None
+    assert err and "unreachable" in err, err
+    assert "WARNING" not in err, err
+    # the key arrived via the environment, not argv
+    assert os.environ.get("ESCAPE_API_KEY") == key
+    # no run dir: the trial never got past the health check
+    assert not (tmp_path / "runs").exists() or \
+        not list((tmp_path / "runs").iterdir())
+
+    # the config-level warning fires only for an EXPLICIT --api-key flag,
+    # not for a key resolved from the environment
+    import importlib
+    from core import config as _config
+    importlib.reload(_config)
+    capsys.readouterr()
+    _config.parse_args(["--scenario", "config_exposure"])  # env-resolved key
+    assert "WARNING" not in capsys.readouterr().err
+    monkeypatch.delenv("ESCAPE_API_KEY", raising=False)
+    argv = ["--scenario", "config_exposure", "--api-key", key]
+    ns = _config.parse_args(argv)
+    assert ns.api_key == key
+    assert "WARNING" in capsys.readouterr().err
+
+
 def test_concurrent_trials_do_not_hijack_process_stdout(monkeypatch, capsys, tmp_path):
     # M1/S3: contextlib.redirect_stdout swaps the PROCESS-GLOBAL sys.stdout;
     # two overlapping trials restore in the wrong order and leave both streams

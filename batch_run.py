@@ -153,9 +153,14 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
     model: explicit model name (for OpenRouter / multi-model endpoints).
     extra_argv: extra run.py flags forwarded verbatim (e.g. the --judge set)."""
     argv = ["--scenario", scenario, "--frame", frame, "--host", host,
-            "--api-key", api_key, "--tool-protocol", tool_protocol,
+            "--tool-protocol", tool_protocol,
             "--temp", str(temp), "--max-steps", str(max_steps),
             "--max-tokens", str(max_tokens)]
+    # The API key travels via ESCAPE_API_KEY, not argv: run.py's parser reads
+    # the env by default, and a key on argv (a) is visible in `ps` on the
+    # rare subprocess path and (b) made parse_args' secret-warning the first
+    # line of every trial's stderr, displacing the real error (M3).
+    os.environ["ESCAPE_API_KEY"] = api_key
     if model:
         argv += ["--model", model]
     if model_label:
@@ -192,7 +197,12 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
         new = [d for d in (set(glob.glob("runs/*")) - before)
                if os.path.basename(d).startswith(scenario + "_")]
     if not new:
-        return None, err_buf.getvalue()[:200] or "no run dir produced"
+        # Report the TAIL of stderr: the actionable failure (endpoint
+        # unreachable, sandbox down, sustained rate limit) is the LAST thing
+        # printed; the old [:200] head could be entirely warning text.
+        tail = " | ".join(
+            [ln for ln in err_buf.getvalue().splitlines() if ln.strip()][-3:])
+        return None, tail[:300] or "no run dir produced"
     d = sorted(new)[-1]
     mp = os.path.join(d, "metrics.json")
     if not os.path.exists(mp):

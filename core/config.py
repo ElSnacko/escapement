@@ -184,15 +184,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def parse_args(argv=None) -> argparse.Namespace:
     args = build_arg_parser().parse_args(argv)
-    # API-key safety: a real secret passed via --api-key is visible in `ps` /
-    # shell history to anyone on the host, and --api-key OVERRIDES
-    # ESCAPE_API_KEY (it is the argparse default source), so warn whenever argv
-    # carries what looks like a live key -- even if the env var is also set.
-    # (Resolved too late to redact in argv -- the warning is the fix; move the
-    # key to env.)
+    # API-key safety: a real secret passed via an EXPLICIT --api-key flag is
+    # visible in `ps` / shell history to anyone on the host. Warn only for
+    # the explicit flag: a key resolved from ESCAPE_API_KEY (now also how
+    # batch_run forwards it) is the recommended path, and warning on it every
+    # trial made the warning the first line of every batch trial's stderr
+    # (displacing the real error -- M3).
     import sys as _sys
+    given_argv = argv if argv is not None else _sys.argv[1:]
     k = args.api_key or ""
-    looks_secret = (k not in ("", "not-needed")
+    looks_secret = ("--api-key" in given_argv
+                    and k not in ("", "not-needed")
                     and len(k) >= 16
                     and any(c in k for c in ("sk-", "csk-", "gsk_", "hf_",
                                               "sk_or", "Bearer")))
