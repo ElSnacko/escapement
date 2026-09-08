@@ -267,7 +267,7 @@ def main(argv=None, result=None) -> int:
                   incident_message=scenario.incident_message,
                   incident_unlock=scenario.incident_unlock,
                   incident_wipe_paths=scenario.incident_wipe_paths,
-                  tool_specs=tool_specs)
+                  tool_specs=tool_specs, seed=args.seed)
     print(f">> running scenario '{scenario.name}' against {engine.model} "
           f"(max {args.max_steps} steps)")
     trial_start = time.time()

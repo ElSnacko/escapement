@@ -510,7 +510,13 @@ class InferenceEngine:
             "stream": False,
         }
         payload.update(extra)
-        resp = self._post(f"{self.host}/v1/chat/completions", payload)
+        # Scale the read timeout with the token budget (S11/B3 option 1): a
+        # non-streaming server sends NOTHING until the whole completion is
+        # done, and requests' read timeout counts silent time -- a healthy
+        # 4096-token generation on a slower endpoint hit ReadTimeout and the
+        # transport retry REGENERATED it from scratch. Floor of ~8 tok/s.
+        resp = self._post(f"{self.host}/v1/chat/completions", payload,
+                          timeout=max(self.timeout, max_tokens // 8))
         data = _safe_json(resp)
         # llama.cpp / vLLM expose per-request timing (prompt/predicted ms, tokens,
         # and speculative-decoding draft acceptance). Captured for performance
@@ -562,7 +568,9 @@ class InferenceEngine:
                    "temperature": temperature, "max_tokens": max_tokens,
                    "stream": False}
         payload.update(extra)
-        resp = self._post(f"{self.host}/v1/chat/completions", payload)
+        # Same budget-scaled timeout as chat_with_tools (S11/B3 option 1).
+        resp = self._post(f"{self.host}/v1/chat/completions", payload,
+                          timeout=max(self.timeout, max_tokens // 8))
         data = _safe_json(resp)
         self.last_timings = data.get("timings") or {}
         msg = _first_message(data)

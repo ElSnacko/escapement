@@ -31,6 +31,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 from run import main as run_one
+from core.config import DEFAULT_HOST
 from core.engine import SustainedRateLimitError
 from core.env import load_env
 from core.stats import fmt_rate, wilson_ci
@@ -136,7 +137,7 @@ def _count_valid_runs(scenario, frame, agency, aware=False, model_filter=None,
 
 def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
            max_steps, max_tokens, container=None, tag=None, model=None,
-           model_label=None, source=None, extra_argv=None):
+           model_label=None, source=None, extra_argv=None, runs_dir="runs"):
     """Run one trial in-process; return its metrics.json dict (or None).
 
     container: sandbox container name (for concurrent batches, each worker
@@ -172,7 +173,7 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
     # Snapshot BEFORE the run so the tagless fallback below can diff. (It was
     # previously taken after run_one, so the diff was always empty and any
     # tagless caller got "no run dir produced" even on success.)
-    before = set() if tag else set(glob.glob("runs/*"))
+    before = set() if tag else set(glob.glob(os.path.join(runs_dir, "*")))
     _install_stream_proxies()   # covers direct _trial callers (tests, smoke)
     out_buf, err_buf = io.StringIO(), io.StringIO()
     _local.out, _local.err = out_buf, err_buf
@@ -213,9 +214,10 @@ def _trial(scenario, frame, agency, aware, host, api_key, tool_protocol, temp,
     if d is None:
         # find the run dir: tag match (concurrency-safe) or before/after diff
         if tag:
-            new = [d2 for d2 in glob.glob("runs/*") if tag in os.path.basename(d2)]
+            new = [d2 for d2 in glob.glob(os.path.join(runs_dir, "*"))
+                   if tag in os.path.basename(d2)]
         else:
-            new = [d2 for d2 in (set(glob.glob("runs/*")) - before)
+            new = [d2 for d2 in (set(glob.glob(os.path.join(runs_dir, "*"))) - before)
                    if os.path.basename(d2).startswith(scenario + "_")]
         if not new:
             tail = " | ".join(
@@ -318,7 +320,7 @@ def main():
                          "forwarded as --scenario-path to every trial. A CLI "
                          "axis flag explicitly given alongside --pack wins over "
                          "pack.json. See docs/scenario_packs.md.")
-    ap.add_argument("--host", default=os.environ.get("ESCAPE_HOST", "http://127.0.0.1:8080"),
+    ap.add_argument("--host", default=DEFAULT_HOST,
                     help="Model endpoint(s). Comma-separated for multi-endpoint "
                          "(dual-instance) mode -- workers round-robin across endpoints.")
     ap.add_argument("--api-key", default=os.environ.get("ESCAPE_API_KEY", "not-needed"),
@@ -360,7 +362,7 @@ def main():
                          "reasoning_content doesn't truncate the tool call).")
     ap.add_argument("--workers", type=int, default=1,
                     help="Concurrent trial workers. >1 requires a sandbox container "
-                         "pool (scripts/sandbox_pool.sh up N) and a server configured "
+                         "pool (scripts/sandbox_pool.py up N) and a server configured "
                          "for parallel slots (-np N --cont-batching).")
     ap.add_argument("--sandbox-base", default="escapement-sandbox",
                     help="Base sandbox container name. workers>1 uses "
@@ -440,6 +442,11 @@ def main():
 
     scenarios = [s.strip() for s in args.scenarios.split(",") if s.strip()]
     frames = [f.strip() for f in args.frames.split(",") if f.strip()]
+    # The corpus dir (S11/M7): run.py writes trials under --log-dir /
+    # ESCAPE_LOG_DIR; the batch must read the SAME place, else it finds no
+    # trials at all on resume.
+    runs_dir = os.environ.get("ESCAPE_LOG_DIR", "runs")
+
     # Pre-flight (S8): a bad frame letter used to surface as N per-trial
     # SystemExit leaks through fut.result() -- reject it here, in one second.
     bad_frames = [f for f in frames if f not in ("A", "B", "C", "D", "E")]
@@ -519,7 +526,7 @@ def main():
     t0 = time.time()
 
     # container pool + endpoints: workers=1 uses the default compose container;
-    # >1 uses {base}-0..{base}-{N-1} (started by scripts/sandbox_pool.sh up N).
+    # >1 uses {base}-0..{base}-{N-1} (started by scripts/sandbox_pool.py up N).
     # Multiple --host values (comma-sep) round-robin workers across endpoints
     # (dual-instance mode: one model per GPU, no pipeline bubble).
     hosts = [h.strip() for h in args.host.split(",") if h.strip()]
@@ -543,6 +550,22 @@ def main():
         containers = [args.sandbox_base if not args.sandbox_offset
                       else f"{args.sandbox_base}-{args.sandbox_offset}"]
 
+    # Pool pre-flight (S11/C2): every sandbox container must be RUNNING before
+    # the sweep -- otherwise the batch discovers a missing pool only after
+    # ABORT_THRESHOLD consecutive dead trials.
+    import subprocess as _sp
+    for c in containers:
+        try:
+            _r = _sp.run(["docker", "inspect", "-f", "{{.State.Running}}", c],
+                         capture_output=True, text=True, timeout=15)
+            _ok = _r.returncode == 0 and _r.stdout.strip() == "true"
+        except Exception:  # noqa: BLE001 -- docker absent/unreachable
+            _ok = False
+        if not _ok:
+            sys.exit(f"!! sandbox container {c!r} is not running -- start the "
+                     f"pool: python scripts/sandbox_pool.py up N "
+                     f"(single default: docker compose up -d --build)")
+
     if args.smoke:
         # One trial of the first cell per endpoint before committing to the
         # sweep: abort if dead/degenerate so a wrong protocol/endpoint/
@@ -556,7 +579,7 @@ def main():
             print(f">> smoke: 1 trial ({sc}|{fr}) against {h} before sweep", flush=True)
             sm, err = _trial(sc, fr, ag, aw, h, args.api_key,
                              args.tool_protocol, args.temp, args.max_steps,
-                             args.max_tokens, container=containers[0],
+                             args.max_tokens, container=containers[0], runs_dir=runs_dir,
                              tag=f"smoke_{uuid.uuid4().hex[:6]}", model=args.model,
                              model_label=args.model_label, source=args.source,
                              extra_argv=judge_argv + variant_argv + pack_argv)
@@ -580,6 +603,7 @@ def main():
         m, err = _trial(sc, fr, ag, aw, host, args.api_key, args.tool_protocol,
                         args.temp, args.max_steps, args.max_tokens,
                         container=container, tag=tag, model=args.model,
+                        runs_dir=runs_dir,
                         model_label=args.model_label, source=args.source,
                         extra_argv=judge_argv + variant_argv + pack_argv)
         if m is None and err:
@@ -597,7 +621,7 @@ def main():
     for pass_num in range(args.max_passes):
         # rebuild task list each pass (ONE disk scan for all cells, not a
         # re-glob + re-parse of every metrics.json per cell)
-        disk = _scan_runs(cells, model_filter=current_model)
+        disk = _scan_runs(cells, model_filter=current_model, runs_dir=runs_dir)
         tasks = []
         for ci, (sc, fr, ag, aw) in enumerate(cells):
             if ci in skipped:
@@ -683,7 +707,7 @@ def main():
         pbar.close()
 
         # check if any cells still need trials (one scan for all cells)
-        disk = _scan_runs(cells, model_filter=current_model)
+        disk = _scan_runs(cells, model_filter=current_model, runs_dir=runs_dir)
         still_needed = sum(max(0, args.n - disk[ci]["n"])
                            for ci in range(len(cells)))
         if still_needed == 0:
@@ -714,7 +738,7 @@ def main():
     # in THIS invocation, so after a resume they undercount k while the on-disk
     # n counts everything -- every resumed batch printed deflated rates. Errors
     # remain this-invocation only (a historical error leaves no run dir).
-    disk = _scan_runs(cells, model_filter=current_model)
+    disk = _scan_runs(cells, model_filter=current_model, runs_dir=runs_dir)
     results = []
     for ci, (sc, fr, ag, aw) in enumerate(cells):
         a = acc[ci]
@@ -742,8 +766,8 @@ def main():
     print("=" * 102)
 
     # dump machine-readable summary
-    out = f"runs/batch_{time.strftime('%Y%m%d_%H%M%S')}.json"
-    os.makedirs("runs", exist_ok=True)
+    out = os.path.join(runs_dir, f"batch_{time.strftime('%Y%m%d_%H%M%S')}.json")
+    os.makedirs(runs_dir, exist_ok=True)
     with open(out, "w", encoding="utf-8") as fh:
         json.dump({"temp": args.temp, "host": args.host, "results": results}, fh, indent=2)
     elapsed = time.time() - t0

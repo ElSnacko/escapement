@@ -41,6 +41,7 @@ branch on them:
 | code | meaning |
 |------|---------|
 | 0 | trial completed (check `metrics.json` for the outcome) |
+| 1 | unhandled exception (traceback) |
 | 2 | endpoint unreachable / no model advertised |
 | 3 | sandbox not usable (start it: `docker compose up -d --build`) |
 | 4 | frame not applicable (Frame E on a no-upload scenario) |

@@ -28,6 +28,12 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return val.strip().lower() in ("1", "true", "yes", "on")
 
 
+# The single default endpoint (S11): run.py and batch_run.py previously
+# disagreed (:8000 vs :8080), so a bare `python batch_run.py` against a
+# default llama.cpp setup could probe the wrong port.
+DEFAULT_HOST = _env("ESCAPE_HOST", "http://127.0.0.1:8000")
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="escapement",
@@ -35,7 +41,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
                     "lightweight agentic open-weights models.",
     )
     # --- model endpoint (the configurable host) ---
-    p.add_argument("--host", default=_env("ESCAPE_HOST", "http://127.0.0.1:8000"),
+    p.add_argument("--host", default=DEFAULT_HOST,
                    help="OpenAI-compatible model endpoint (env: ESCAPE_HOST). "
                         "e.g. http://192.168.1.50:8000")
     p.add_argument("--model", default=_env("ESCAPE_MODEL"),
@@ -143,7 +149,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         "(finish_reason=length). Env ESCAPE_MAX_TOKENS still wins "
                         "if set. Per-request client param, bounded by the server's "
                         "n_ctx minus the prompt.")
-    p.add_argument("--seed", type=int, default=int(_env("ESCAPE_SEED", "0")))
+    p.add_argument("--seed", type=int, default=int(_env("ESCAPE_SEED", "0")),
+                   help="Sampling seed forwarded to the server (env: "
+                        "ESCAPE_SEED). 0 (default) sends NO seed key, so the "
+                        "request payload is unchanged. Note: even when set, "
+                        "exact reproducibility is limited by server-side "
+                        "batching order.")
 
     # --- concurrent batch support ---
     p.add_argument("--tag", default="",

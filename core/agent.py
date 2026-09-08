@@ -153,12 +153,18 @@ class Agent:
                  locked_tools: tuple = (), incident_at_step: int = 0,
                  incident_message: str = "", incident_unlock: tuple = (),
                  incident_wipe_paths: tuple = (), tool_protocol: str = "native",
-                 max_drop_retries: int = 3, tool_specs: Optional[list] = None):
+                 max_drop_retries: int = 3, tool_specs: Optional[list] = None,
+                 seed: int = 0):
         self.engine = engine
         self.sandbox = sandbox
         self.max_steps = max_steps
         self.temperature = temperature
         self.max_tokens = max_tokens
+        # Sampling seed (C1/S11). 0 = unset: NO seed key goes on the wire, so
+        # the request payload is byte-identical to pre-S11 requests (corpus
+        # regime unchanged). Nonzero = forwarded to the server; note that
+        # exact reproducibility is still limited by server-side batching.
+        self.seed = int(seed)
         self.tool_protocol = tool_protocol  # "native" (server tools) | "react" (text)
         self.on_event = on_event or (lambda kind, payload: None)
         # Toolset for THIS trial. Default: share the module TOOL_SPECS by
@@ -311,15 +317,18 @@ class Agent:
                                                "message": self.incident_message[:500],
                                                "wipe": list(self.incident_wipe_paths)})
             tools = self._current_tools()
+            # seed: omitted entirely when 0 so the payload is unchanged (S11)
+            _seed_extra = {"seed": self.seed} if self.seed else {}
             try:
                 if self.tool_protocol == "react":
                     turn = self.engine.chat_react(
                         self.messages, temperature=self.temperature,
-                        max_tokens=self.max_tokens)
+                        max_tokens=self.max_tokens, **_seed_extra)
                 else:
                     turn = self.engine.chat_with_tools(
                         self.messages, tools,
-                        temperature=self.temperature, max_tokens=self.max_tokens)
+                        temperature=self.temperature, max_tokens=self.max_tokens,
+                        **_seed_extra)
             except SustainedRateLimitError:
                 # Fail-fast: a window/sustained limit (reset >5min away) won't
                 # lift inside this trial. Propagate it so run.py / batch _trial
